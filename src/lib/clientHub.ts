@@ -24,6 +24,24 @@ export const HUB_TABS: HubTabDef[] = [
   { slug: "setup", label: "Setup", page: "clientSetup", builderOnly: true },
 ];
 
+/**
+ * A hub tab that is not one of the section pages: it renders a component built for the hub. Taxonomy
+ * moved here from Settings (the themes and personas belong to a client, not to the whole app). It
+ * reuses the existing taxonomy editor, scoped to the client's ad accounts. Builder only, like the
+ * Settings tab it replaces. The address opens for anyone on staff and says why it is empty.
+ */
+export interface HubCustomTabDef {
+  slug: "taxonomy";
+  label: string;
+  builderOnly?: boolean;
+  /** Reads the client's ad account: shows a plain message when it has none. */
+  needsAccount?: boolean;
+}
+
+export const HUB_CUSTOM_TABS: HubCustomTabDef[] = [
+  { slug: "taxonomy", label: "Taxonomy", builderOnly: true, needsAccount: true },
+];
+
 export interface ScopeSubDef {
   slug: string;
   label: string;

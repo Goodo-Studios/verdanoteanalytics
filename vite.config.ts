@@ -41,7 +41,9 @@ export default defineConfig(() => ({
         entryFileNames: (chunk) =>
           chunk.name === "sw" ? "sw.js" : "assets/[name]-[hash].js",
         manualChunks: {
-          "vendor-react": ["react", "react-dom", "react-router-dom"],
+          // React 19 keeps its client entry outside the package's main entry, so name it too;
+          // otherwise react-dom (about 627 KB of source) lands in the main chunk.
+          "vendor-react": ["react", "react-dom", "react-dom/client", "react-router-dom"],
           "vendor-query": ["@tanstack/react-query"],
           "vendor-supabase": ["@supabase/supabase-js"],
           "vendor-radix": [

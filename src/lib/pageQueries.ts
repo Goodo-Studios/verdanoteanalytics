@@ -16,7 +16,7 @@ export interface PageQuery {
   staffList?: boolean;
 }
 
-export const CLIENT_SWITCHER_COLUMNS = "slug, name, active";
+export const CLIENT_SWITCHER_COLUMNS = "slug, name, active, does_creators";
 export const CLIENT_SWITCHER_LINK_COLUMNS = "account_id, client_slug";
 export const PIPELINE_TASK_COLUMNS = "id, clickup_task_id, task_name, stage, due_date, content_type, updated_at, asset_link";
 // The client's own board by cycle (phase 5). A client login sends these with no filter: the row rules decide.

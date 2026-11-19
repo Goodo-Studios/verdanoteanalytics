@@ -5,6 +5,8 @@
 // order. Retirement used to skip a failed delete and only lower its count; it now throws.
 
 import { fetchAllRows, type PageResult } from "../_shared/paging.ts";
+import type { ExistingEntity } from "../_shared/entity-clustering.ts";
+import { arr, parseEmbedding } from "./participants.ts";
 
 export type ExistingEntityRow = {
   id: string;
@@ -15,6 +17,17 @@ export type ExistingEntityRow = {
 };
 
 const RETIRE_CHUNK = 200;
+
+/** Parses stored group rows into matchable entities (centre vector as numbers, anchors as lists). */
+export function toExistingEntities(rows: ExistingEntityRow[]): ExistingEntity[] {
+  return rows.map((r) => ({
+    id: r.id,
+    centroid: parseEmbedding(r.centroid),
+    assetKeys: arr(r.asset_keys),
+    metaVideoIds: arr(r.meta_video_ids),
+    metaImageHashes: arr(r.meta_image_hashes),
+  }));
+}
 
 // deno-lint-ignore no-explicit-any
 type Db = { from(table: string): any };

@@ -63,7 +63,10 @@ Deno.test("a failed lookup is an error, not a silent loss of anchors", async () 
 });
 
 Deno.test("cluster-creatives uses loadAssetKeys, not its own 500-id lookup", async () => {
-  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
-  assert(src.includes("loadAssetKeys("), "cluster-creatives must call loadAssetKeys");
-  assertEquals(/from\("media_assets"\)/.test(src), false, "no direct media_assets read left in index.ts");
+  // The lookup moved from index.ts into participants.ts (which builds each batch's participants).
+  const index = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  const participants = await Deno.readTextFile(new URL("./participants.ts", import.meta.url));
+  assert(participants.includes("loadAssetKeys("), "participants.ts must call loadAssetKeys");
+  assertEquals(/from\("media_assets"\)/.test(index), false, "no direct media_assets read left in index.ts");
+  assertEquals(/from\("media_assets"\)/.test(participants), false, "no direct media_assets read in participants.ts");
 });

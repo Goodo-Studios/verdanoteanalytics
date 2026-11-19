@@ -26,6 +26,7 @@
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 const ACCOUNT_ID = "act_bearaby";
 
@@ -184,7 +185,9 @@ function renderSettings() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <SettingsPage />
+      <MemoryRouter>
+        <SettingsPage />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -247,8 +250,9 @@ describe("US-003: builder-only gate — non-builder access is denied (e2e 2)", (
 
     const tab = await screen.findByRole("button", { name: /Taxonomy/i });
     fireEvent.click(tab);
-    // The real, lazily-loaded surface mounts and fetches the taxonomy.
-    expect(await screen.findByText(/Account taxonomy/i)).toBeInTheDocument();
+    // Taxonomy moved to the client hub: the Settings tab is a pointer to it, not the editor.
+    expect(await screen.findByText(/Taxonomy now lives with each client/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Account taxonomy/i)).toBeNull();
   });
 
   it("hides the Taxonomy tab and surface from a client", () => {

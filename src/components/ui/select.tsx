@@ -79,7 +79,9 @@ const SelectContent = React.forwardRef<
         className={cn(
           "p-1",
           position === "popper" &&
-            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]",
+            // Width follows the trigger. The height is not pinned to the trigger's: that turned a short
+            // list into a one-row window with its own scroll arrows (a scroll box inside the page).
+            "w-full min-w-[var(--radix-select-trigger-width)]",
         )}
       >
         {children}

@@ -16,9 +16,11 @@ import path from "node:path";
 // Raised to 920,000 on 2026-11-16 (Matthew's decision) for the npm minor updates in #431:
 // supabase-js 2.95 to 2.119 adds about 56 KB and the Radix minors about 16 KB; measured
 // first load 905,092 bytes.
+// Raised to 1,000,000 on 2026-11-19 (Matthew's decision) for the React 19 upgrade: react-dom 19
+// is larger than 18 and adds about 80 KB to first load; measured first load 986,491 bytes.
 export const DEFAULT_BUNDLE_BUDGET = {
   maxChunkBytes: 380_000,
-  maxInitialLoadBytes: 920_000,
+  maxInitialLoadBytes: 1_000_000,
 };
 
 const SCRIPT_TAG = /<script\b[^>]*>/gi;

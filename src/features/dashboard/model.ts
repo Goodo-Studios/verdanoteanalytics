@@ -66,10 +66,16 @@ export function daysSince(iso: string | null | undefined, now: Date): number {
   return (now.getTime() - ms) / DAY_MS;
 }
 
+/** A client is stale after this many days with no update from HQ. */
+export const STALE_AFTER_DAYS = 21;
+
 /** No update from the sync in 21 days. */
 export function isStale(lastSynced: string | null | undefined, now: Date): boolean {
-  return daysSince(lastSynced, now) > 21;
+  return daysSince(lastSynced, now) > STALE_AFTER_DAYS;
 }
+
+/** Plain words for the help text next to the Stale badge. Says what the rule is; it does not decide anything. */
+export const STALE_HELP = `Stale: HQ has not sent an update for this client in more than ${STALE_AFTER_DAYS} days. It looks at the date of the last update from HQ, not at ad data.`;
 
 /** Under half done and no update in 14 days. */
 export function isAtRisk(pct: number | null | undefined, lastSynced: string | null | undefined, now: Date): boolean {

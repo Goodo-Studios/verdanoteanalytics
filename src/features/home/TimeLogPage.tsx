@@ -3,6 +3,7 @@
 // I can add an entry by hand (date, start, end, and a task or a client or Internal with a
 // category), edit one, and delete one after confirming. Database errors (overlap, end before
 // start, longer than 24 hours) are shown in plain words. The week is in the address (?week=). Dates and clock times are in the studio time zone (Eastern), as in Reports.
+// Import CSV adds existing entries from a spreadsheet, with a preview (TimeImportPanel).
 // A small form starts a timer for a client or Internal with a category, for time with no task.
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -32,6 +33,7 @@ import {
   type TimeEntryRow,
 } from "@/lib/timeLog";
 import { HomeTabs } from "./HomeTabs";
+import { TimeImportPanel } from "./TimeImportPanel";
 
 /** Finished tasks stay in the manual-entry Task picker for this many days. */
 const RECENT_DONE_DAYS = 14;
@@ -216,6 +218,7 @@ export default function TimeLogPage() {
   const { confirm, dialog } = useConfirm();
   // null: no form; "new": adding; otherwise the id of the entry being edited.
   const [formFor, setFormFor] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const grouped = useMemo(() => groupByDay(entries.data ?? [], week.days), [entries.data, week.days]);
   const editing = formFor && formFor !== "new" ? (entries.data ?? []).find((e) => e.id === formFor) ?? null : null;
@@ -287,6 +290,9 @@ export default function TimeLogPage() {
         <Link to={`${prefix}/time/reports`} className="text-sm underline" data-testid="time-reports-link">
           Reports
         </Link>
+        <Button size="sm" variant="outline" onClick={() => setImporting((v) => !v)} aria-expanded={importing} data-testid="time-import-open">
+          Import CSV
+        </Button>
         <Button size="sm" onClick={() => setFormFor("new")} data-testid="time-add" disabled={formFor === "new"}>
           Add entry
         </Button>
@@ -303,6 +309,8 @@ export default function TimeLogPage() {
           editing={!!editing}
         />
       ) : null}
+
+      {importing ? <TimeImportPanel onClose={() => setImporting(false)} /> : null}
 
       <StartWithoutTask />
 

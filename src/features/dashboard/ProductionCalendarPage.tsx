@@ -6,7 +6,8 @@
 // schedule, edit and delete shoots, confirm and remove talent, and add, edit
 // and delete blocks, all through the checked functions. Casting itself is on
 // the Casting page and call sheets on the Call sheets page.
-// Not ported: the month grid view and the Google Calendar sync.
+// The month view places shoots on their days; a day or the New shoot button opens
+// the shoot form. The list view is kept as a toggle. Not ported: the Google Calendar sync.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,9 @@ import { DashboardError, loadBrandsAndTeam, type BrandOption } from "./api";
 import { confirmTalent, createBlock, createShoot, deleteBlock, deleteShoot, loadCalendar, unconfirmTalent, updateBlock, updateShoot, type CalendarData } from "./productionApi";
 import {
   EMPTY_BLOCK_FORM,
+  activeClientOptions,
+  monthGrid,
+  shootsByDay,
   EMPTY_SHOOT_FORM,
   blockToForm,
   callSheetState,
@@ -54,7 +58,7 @@ function ShootEditor({ initial, title, busy, brands, locations, fixedClient, onS
     <form aria-label={title} className="space-y-2 rounded-lg border p-3" onSubmit={(e) => { e.preventDefault(); onSave(form); }}>
       <h3 className="text-sm font-semibold">{title}</h3>
       <div className="grid gap-2 sm:grid-cols-3">
-        <SelectField label="Shoot client" disabled={fixedClient} value={form.client_slug} onChange={(e) => set({ client_slug: e.target.value })} placeholder="Pick a client" options={brands.filter((b) => b.active || b.slug === form.client_slug).map((b) => ({ value: b.slug, label: b.name }))} />
+        <SelectField label="Shoot client" disabled={fixedClient} value={form.client_slug} onChange={(e) => set({ client_slug: e.target.value })} placeholder="Pick a client" options={activeClientOptions(brands, form.client_slug).map((b) => ({ value: b.slug, label: b.name }))} />
         <TextField label="Shoot date" type="date" value={form.shoot_date} onChange={(e) => set({ shoot_date: e.target.value })} />
         <SelectField label="Shoot location" value={form.location_id} onChange={(e) => set({ location_id: e.target.value })} placeholder="Typed below, or none" options={locations.map((l) => ({ value: l.id, label: l.name }))} />
         {!form.location_id && <TextField label="Typed location" value={form.location} onChange={(e) => set({ location: e.target.value })} />}
@@ -104,6 +108,9 @@ export default function ProductionCalendarPage() {
   const [data, setData] = useState<CalendarData | null>(null);
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [adding, setAdding] = useState(false);
+  const [addDate, setAddDate] = useState("");
+  const [pickedDay, setPickedDay] = useState<string | null>(null);
+  const view = params.get("view") === "list" ? "list" : "month";
   const [editingShoot, setEditingShoot] = useState<string | null>(null);
   const [editingBlock, setEditingBlock] = useState<{ shootId: string; block: ShootBlock | null } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -133,7 +140,12 @@ export default function ProductionCalendarPage() {
   const crewName = useMemo(() => new Map((data?.crew ?? []).map((c) => [c.id, c.name])), [data]);
   const days = useMemo(() => groupByDate(data?.shoots ?? []), [data]);
   const castingsOf = (s: Shoot) => (data?.castings ?? []).filter((c) => c.client_slug === s.client_slug);
-  const goMonth = (m: string) => setParams({ month: m }, { replace: true });
+  const goMonth = (m: string) => { setPickedDay(null); setParams({ month: m, ...(view === "list" ? { view } : {}) }, { replace: true }); };
+  const goView = (v: "month" | "list") => setParams({ month, ...(v === "list" ? { view: v } : {}) }, { replace: true });
+  const grid = useMemo(() => monthGrid(month), [month]);
+  const byDay = useMemo(() => shootsByDay(data?.shoots ?? []), [data]);
+  const shownDays = view === "list" ? days : days.filter(([d]) => d === pickedDay);
+  const startAdd = (date: string) => { setAddDate(date); setAdding(true); setError(null); setNotice(null); };
 
   const run = async (fn: () => Promise<string>): Promise<boolean> => {
     setBusy(true);
@@ -205,25 +217,50 @@ export default function ProductionCalendarPage() {
         <Button type="button" size="sm" variant="outline" onClick={() => goMonth(shiftMonth(month, -1))}>Previous month</Button>
         <span className="font-semibold" data-testid="calendar-month">{monthLabel(month)}</span>
         <Button type="button" size="sm" variant="outline" onClick={() => goMonth(shiftMonth(month, 1))}>Next month</Button>
-        <Link to={`${prefix}/call-sheets`} className="underline">Call sheets</Link>
-        <Link to={`${prefix}/locations`} className="underline">Locations</Link>
-        <Link to={`${prefix}/crew`} className="underline">Crew</Link>
+        <div role="group" aria-label="Calendar view" className="ml-auto flex gap-1">
+          {(["month", "list"] as const).map((v) => (
+            <Button key={v} type="button" size="sm" variant={view === v ? "secondary" : "outline"} aria-pressed={view === v} onClick={() => goView(v)}>{v === "month" ? "Month" : "List"}</Button>
+          ))}
+        </div>
       </div>
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
       {adding ? (
-        <ShootEditor initial={EMPTY_SHOOT_FORM} title="Schedule a shoot" busy={busy} brands={brands} locations={data?.locations ?? []} fixedClient={false} onSave={(f) => saveShoot(f, null)} onCancel={() => setAdding(false)} />
+        <ShootEditor key={addDate} initial={{ ...EMPTY_SHOOT_FORM, shoot_date: addDate }} title="Schedule a shoot" busy={busy} brands={brands} locations={data?.locations ?? []} fixedClient={false} onSave={(f) => saveShoot(f, null)} onCancel={() => setAdding(false)} />
       ) : (
-        <Button type="button" size="sm" variant="outline" onClick={() => { setAdding(true); setError(null); setNotice(null); }}>Schedule a shoot</Button>
+        <Button type="button" size="sm" variant="outline" onClick={() => startAdd(pickedDay ?? "")}>New shoot</Button>
       )}
 
       {loadError ? (
         <ErrorState message={loadError} onRetry={() => void load()} />
       ) : !data ? (
         <LoadingState label="Loading shoots" />
-      ) : days.length === 0 ? <EmptyState title={`No shoots in ${monthLabel(month)}.`} /> : (
-        days.map(([date, shoots]) => (
+      ) : view === "list" && days.length === 0 ? <EmptyState title={`No shoots in ${monthLabel(month)}.`} /> : (
+        <>
+        {view === "month" && (
+          <div role="grid" aria-label={`Shoots in ${monthLabel(month)}`} className="overflow-x-auto" data-testid="month-grid">
+            <div className="grid min-w-[44rem] grid-cols-7 gap-px rounded-lg border bg-border text-xs">
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => <div key={d} role="columnheader" className="bg-muted p-1 text-center font-semibold">{d}</div>)}
+              {grid.flat().map((cell) => {
+                const list = byDay.get(cell.date) ?? [];
+                return (
+                  <div key={cell.date} role="gridcell" data-testid={`day-${cell.date}`} className={`min-h-24 bg-background p-1 ${cell.inMonth ? "" : "opacity-40"} ${pickedDay === cell.date ? "ring-2 ring-ring" : ""}`}>
+                    <div className="flex items-center justify-between">
+                      <button type="button" aria-label={`Open ${formatDay(cell.date)}`} className="font-medium underline-offset-2 hover:underline" onClick={() => setPickedDay(cell.date)}>{Number(cell.date.slice(8))}</button>
+                      {cell.inMonth && <button type="button" aria-label={`New shoot on ${formatDay(cell.date)}`} className="rounded px-1 text-muted-foreground hover:bg-muted" onClick={() => { setPickedDay(cell.date); startAdd(cell.date); }}>+</button>}
+                    </div>
+                    {list.map((s) => (
+                      <button key={s.id} type="button" data-testid={`chip-${s.id}`} className="mt-1 block w-full truncate rounded bg-secondary px-1 py-0.5 text-left" onClick={() => setPickedDay(cell.date)}>{names.get(s.client_slug) ?? s.client_slug}</button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+            {days.length === 0 && <p className="mt-2 text-sm text-muted-foreground">{`No shoots in ${monthLabel(month)}.`}</p>}
+          </div>
+        )}
+        {shownDays.map(([date, shoots]) => (
           <section key={date} aria-label={formatDay(date)} className="space-y-2">
             <h2 className="text-sm font-semibold">{formatDay(date)}</h2>
             {shoots.map((s) => {
@@ -286,7 +323,8 @@ export default function ProductionCalendarPage() {
               );
             })}
           </section>
-        ))
+        ))}
+        </>
       )}
       {dialog}
     </PageShell>

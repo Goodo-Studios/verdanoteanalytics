@@ -21,7 +21,7 @@ function initialLoad(files, missing = []) {
 
 test("default budget keeps the 380,000 byte per-chunk cap and has no total cap", () => {
   assert.equal(DEFAULT_BUNDLE_BUDGET.maxChunkBytes, 380_000);
-  assert.equal(DEFAULT_BUNDLE_BUDGET.maxInitialLoadBytes, 920_000);
+  assert.equal(DEFAULT_BUNDLE_BUDGET.maxInitialLoadBytes, 1_000_000);
   assert.equal("maxTotalBytes" in DEFAULT_BUNDLE_BUDGET, false);
 });
 

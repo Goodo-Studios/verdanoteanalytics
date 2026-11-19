@@ -1,13 +1,12 @@
-import { lazy, Suspense, useState } from "react";
+import { useState } from "react";
+import { Link } from "react-router-dom";
 import { SyncStatusBanner } from "@/components/SyncStatusBanner";
 import { MediaRefreshBanner } from "@/components/MediaRefreshBanner";
 import { Loader2, User, Settings as SettingsIcon, Shield, FileOutput, Tags, Building2, Activity, LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { routeImports } from "@/lib/routePrefetch";
-
-// US-003: builder-only taxonomy config surface, lazy-loaded so the chunk only
-// loads when a builder opens the tab (or hover-prefetches /settings).
-const TaxonomyConfigSection = lazy(routeImports.taxonomyConfig);
+import { hubPath } from "@/lib/clientHub";
+import { useRolePrefix } from "@/hooks/useRolePath";
+import { useClientSelection } from "@/contexts/ClientSelectionContext";
 
 // Profile / User sections
 import { ProfileInfoSection } from "@/components/user-settings/ProfileInfoSection";
@@ -21,6 +20,7 @@ import { ConfirmDeleteDialog } from "@/components/user-settings/ConfirmDeleteDia
 
 // Account settings sections
 import { AccountOverviewSection } from "@/components/settings/AccountOverviewSection";
+import { AccountScopeHeader } from "@/components/settings/AccountScopeHeader";
 import { SyncSettingsSection } from "@/components/settings/SyncSettingsSection";
 import { SyncScheduleSection } from "@/components/settings/SyncScheduleSection";
 import { SyncHistorySection } from "@/components/settings/SyncHistorySection";
@@ -49,6 +49,8 @@ const SettingsPage = () => {
   const isSyncing = useIsSyncing();
   const { isBuilder: realBuilder, isEmployee: realEmployee, isClient: realClient } = useAuth();
   const { isClientPreview, isEmployeePreview } = useClientPreview();
+  const prefix = useRolePrefix();
+  const { clients, selectedSlug, selectedClient, setSelectedSlug, linkedAccounts } = useClientSelection();
 
   // Derive effective role flags accounting for preview mode
   const effectiveIsClient = realClient || isClientPreview;
@@ -188,20 +190,30 @@ const SettingsPage = () => {
             </>
           ) : (
             <>
-              <div className="mb-4">
-                <h2 className="font-heading text-[20px] text-forest">{accountState.account.name}</h2>
-                <p className="font-body text-[12px] text-slate">Configure sync preferences for this account.</p>
-              </div>
-              <AccountOverviewSection
-                account={accountState.account}
-                onRename={() => accountState.setRenamingAccount({ id: accountState.account!.id, name: accountState.account!.name })}
-                onSync={() => accountState.sync.mutate({ account_id: accountState.account!.id })}
-                syncPending={accountState.sync.isPending || isSyncing}
-                onUploadCsv={() => { accountState.setShowCsvModal(accountState.account!.id); accountState.setCsvPreview([]); accountState.setCsvMappings([]); }}
-                onToggle={(checked) => accountState.toggleAccount.mutate({ id: accountState.account!.id, is_active: checked })}
-                onRefreshMedia={() => accountState.refreshMedia.mutate({ account_id: accountState.account!.id })}
-                refreshMediaPending={accountState.refreshMedia.isPending}
+              <AccountScopeHeader
+                accountName={accountState.account.name}
+                accountId={accountState.account.id}
+                clientName={selectedClient && linkedAccounts.some((a) => a.id === accountState.account!.id) ? selectedClient.name : null}
+                clients={clients}
+                selectedSlug={selectedSlug}
+                onPickClient={setSelectedSlug}
+                linkedAccounts={linkedAccounts}
+                onPickAccount={accountState.setSelectedAccountId}
               />
+              {/* Employees get the Campaign Objective and the thresholds below it. The overview (rename,
+                  active switch, sync, CSV upload, media refresh) and the sync log stay with builders. */}
+              {effectiveIsBuilder && (
+                <AccountOverviewSection
+                  account={accountState.account}
+                  onRename={() => accountState.setRenamingAccount({ id: accountState.account!.id, name: accountState.account!.name })}
+                  onSync={() => accountState.sync.mutate({ account_id: accountState.account!.id })}
+                  syncPending={accountState.sync.isPending || isSyncing}
+                  onUploadCsv={() => { accountState.setShowCsvModal(accountState.account!.id); accountState.setCsvPreview([]); accountState.setCsvMappings([]); }}
+                  onToggle={(checked) => accountState.toggleAccount.mutate({ id: accountState.account!.id, is_active: checked })}
+                  onRefreshMedia={() => accountState.refreshMedia.mutate({ account_id: accountState.account!.id })}
+                  refreshMediaPending={accountState.refreshMedia.isPending}
+                />
+              )}
               <div className="glass-panel p-6 space-y-4">
                 <div>
                   <h3 className="font-heading text-[16px] text-forest">Campaign Objective</h3>
@@ -244,11 +256,12 @@ const SettingsPage = () => {
                 onSaveCooldown={accountState.handleSaveCooldown} cooldownLoaded={accountState.cooldownLoaded}
                 onSave={accountState.handleSave} onApplyToAll={accountState.handleApplyToAll}
                 saving={accountState.updateAccountSettings.isPending} showApplyAll={accountState.accounts.length > 1}
+                employeeView={!effectiveIsBuilder}
                 targetRoas={accountState.targetRoas} setTargetRoas={accountState.setTargetRoas}
                 targetCpa={accountState.targetCpa} setTargetCpa={accountState.setTargetCpa}
                 targetMonthlySpend={accountState.targetMonthlySpend} setTargetMonthlySpend={accountState.setTargetMonthlySpend}
               />
-              <SyncHistorySection accountId={accountState.account.id} />
+              {effectiveIsBuilder && <SyncHistorySection accountId={accountState.account.id} />}
             </>
           )}
         </div>
@@ -259,17 +272,29 @@ const SettingsPage = () => {
         <NamingConventionSection />
       )}
 
-      {/* Taxonomy Tab (US-003, builder-only) */}
+      {/* Taxonomy moved to the client hub (the themes and personas belong to one client). This tab
+          stays as a pointer so old habits and bookmarks still land somewhere useful. */}
       {safeActiveTab === "taxonomy" && effectiveIsBuilder && (
-        <Suspense
-          fallback={
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          }
-        >
-          <TaxonomyConfigSection accounts={accountState.accounts} />
-        </Suspense>
+        <div className="max-w-2xl glass-panel space-y-3 p-6" data-testid="settings-taxonomy-moved">
+          <h2 className="font-heading text-[20px] text-forest">Taxonomy now lives with each client</h2>
+          <p className="font-body text-[13px] text-slate">
+            Themes and personas are set per client. Open a client and choose its Taxonomy tab.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            {selectedSlug && (
+              <Link
+                to={`${prefix}${hubPath(selectedSlug, "taxonomy")}`}
+                className="font-body text-[13px] font-medium text-verdant underline underline-offset-2"
+                data-testid="settings-taxonomy-link"
+              >
+                Open taxonomy for {selectedClient?.name ?? selectedSlug}
+              </Link>
+            )}
+            <Link to={`${prefix}/clients`} className="font-body text-[13px] text-slate underline underline-offset-2">
+              Go to Clients
+            </Link>
+          </div>
+        </div>
       )}
 
       {/* Export Tab */}

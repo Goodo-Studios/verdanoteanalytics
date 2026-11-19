@@ -36,6 +36,11 @@ interface SyncSettingsSectionProps {
   onApplyToAll: () => void;
   saving: boolean;
   showApplyAll: boolean;
+  /**
+   * Employee view: only the thresholds and goals an employee may change. The data pull window, the
+   * app-wide sync cooldown and "Apply to all accounts" are builder settings and are not shown.
+   */
+  employeeView?: boolean;
   targetRoas: string;
   setTargetRoas: (v: string) => void;
   targetCpa: string;
@@ -64,7 +69,7 @@ export function SyncSettingsSection({
   killScaleKpi, setKillScaleKpi, killScaleKpiDirection, setKillScaleKpiDirection,
   scaleThreshold, setScaleThreshold, killThreshold, setKillThreshold,
   syncCooldownMinutes, setSyncCooldownMinutes, onSaveCooldown, cooldownLoaded = true,
-  onSave, onApplyToAll, saving, showApplyAll,
+  onSave, onApplyToAll, saving, showApplyAll, employeeView = false,
   targetRoas, setTargetRoas, targetCpa, setTargetCpa,
   targetMonthlySpend, setTargetMonthlySpend,
 }: SyncSettingsSectionProps) {
@@ -76,15 +81,19 @@ export function SyncSettingsSection({
   return (
     <section className="glass-panel p-6 space-y-4">
       <div>
-        <h2 className="font-heading text-[20px] text-forest">Sync Settings</h2>
-        <p className="font-body text-[13px] text-slate mt-0.5">Configure data range and thresholds for this account.</p>
+        <h2 className="font-heading text-[20px] text-forest">{employeeView ? "Thresholds and goals" : "Sync Settings"}</h2>
+        <p className="font-body text-[13px] text-slate mt-0.5">
+          {employeeView ? "Thresholds and goals for this account." : "Configure data range and thresholds for this account."}
+        </p>
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label className="font-body text-[14px] font-medium text-charcoal">Date Range (days)</Label>
-          <Input type="number" value={dateRange} onChange={(e) => setDateRange(e.target.value)} min="1" max="365" className="bg-background font-data text-[17px] font-medium text-charcoal" />
-          <p className="font-body text-[12px] text-sage">How many days of data to pull on each sync.</p>
-        </div>
+        {!employeeView && (
+          <div className="space-y-2">
+            <Label className="font-body text-[14px] font-medium text-charcoal">Date Range (days)</Label>
+            <Input type="number" value={dateRange} onChange={(e) => setDateRange(e.target.value)} min="1" max="365" className="bg-background font-data text-[17px] font-medium text-charcoal" />
+            <p className="font-body text-[12px] text-sage">How many days of data to pull on each sync.</p>
+          </div>
+        )}
         <div className="space-y-2">
           <Label className="font-body text-[14px] font-medium text-charcoal">Iteration Spend Threshold ($)</Label>
           <Input type="number" value={spendThreshold} onChange={(e) => setSpendThreshold(e.target.value)} min="0" className="bg-background font-data text-[17px] font-medium text-charcoal" />
@@ -92,6 +101,7 @@ export function SyncSettingsSection({
         </div>
       </div>
 
+      {!employeeView && (
       <div className="border-t border-border pt-4 space-y-2">
         <div>
           <h3 className="font-heading text-[20px] text-forest">Sync Cooldown</h3>
@@ -118,6 +128,7 @@ export function SyncSettingsSection({
           </Button>
         </div>
       </div>
+      )}
 
       <div className="border-t border-border pt-4 space-y-3">
         <div>
@@ -232,7 +243,7 @@ export function SyncSettingsSection({
           {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
           Save Settings
         </Button>
-        {showApplyAll && (
+        {showApplyAll && !employeeView && (
           <Button size="sm" variant="outline" onClick={onApplyToAll} disabled={saving}>
             Apply to All Accounts
           </Button>

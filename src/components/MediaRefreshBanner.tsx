@@ -14,7 +14,7 @@ export function MediaRefreshBanner() {
   const { data: logs } = useMediaRefreshLogs();
   const { data: accounts } = useAccounts();
   const [elapsed, setElapsed] = useState(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval>>();
+  const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   const runningLog = (logs || []).find((log) => log.status === "running");
   const runningStartedAt = runningLog?.started_at;
