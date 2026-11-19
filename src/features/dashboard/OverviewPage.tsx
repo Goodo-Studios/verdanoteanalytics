@@ -20,6 +20,7 @@ import {
   overviewCounts,
   progressText,
   serviceLines,
+  STALE_HELP,
   sortByProgress,
   type ActiveEngagement,
   type BoardCard,
@@ -28,9 +29,9 @@ import {
 
 const CARD = "rounded-lg border border-border bg-card p-4";
 
-function Tile({ label, value, Icon, tone }: { label: string; value: number; Icon: typeof Users; tone: string }) {
+function Tile({ label, value, Icon, tone, help }: { label: string; value: number; Icon: typeof Users; tone: string; help?: string }) {
   return (
-    <div className={CARD} data-testid={`overview-tile-${label.toLowerCase().replace(/\s+/g, "-")}`}>
+    <div className={CARD} title={help} data-testid={`overview-tile-${label.toLowerCase().replace(/\s+/g, "-")}`}>
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <Icon className={`h-4 w-4 ${tone}`} aria-hidden />
         <span>{label}</span>
@@ -58,7 +59,12 @@ function ClientCard({ client, cards, engagement, now, prefix }: {
       <div className="flex items-start justify-between gap-2">
         <h2 className="font-medium">{client.name}</h2>
         {!client.active && <Badge variant="outline" className="text-muted-foreground">Hidden</Badge>}
-        {HEALTH_LABEL[health] && <StatusBadge status={health === "stale" ? "late" : "waiting"} label={HEALTH_LABEL[health] ?? undefined} />}
+        {HEALTH_LABEL[health] && (
+          <span title={health === "stale" ? STALE_HELP : undefined} data-testid={`overview-health-${client.slug}`}>
+            <StatusBadge status={health === "stale" ? "late" : "waiting"} label={HEALTH_LABEL[health] ?? undefined} />
+            {health === "stale" && <span className="sr-only">{STALE_HELP}</span>}
+          </span>
+        )}
       </div>
       <div className="mt-3 h-2 w-full rounded bg-muted" aria-label={`Progress ${pct ?? 0} percent`} role="img">
         <div className="h-2 rounded bg-primary" style={{ width: `${pct ?? 0}%` }} />
@@ -131,7 +137,7 @@ export default function OverviewPage() {
           <section aria-label="Summary" className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Tile label="Clients" value={counts.total} Icon={Users} tone="text-primary" />
             <Tile label="At risk" value={counts.atRisk} Icon={AlertTriangle} tone="text-amber-700" />
-            <Tile label="Stale" value={counts.stale} Icon={AlertOctagon} tone="text-destructive" />
+            <Tile label="Stale" value={counts.stale} Icon={AlertOctagon} tone="text-destructive" help={STALE_HELP} />
           </section>
           {clients.length === 0 ? (
             <EmptyState title={query.trim() ? "No clients match that search." : "No clients yet."} />

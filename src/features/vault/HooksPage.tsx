@@ -16,6 +16,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRolePrefix } from "@/hooks/useRolePath";
+import { embeddedRows } from "./newestFirst";
 
 /** A single starred hook entry — one item can produce up to three (verbal, text, visual). */
 interface HookEntry {
@@ -109,7 +110,7 @@ export default function HooksPage() {
     const entries: HookEntry[] = [];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const item of items as any[]) {
-      const fw = Array.isArray(item.inspiration_frameworks) ? item.inspiration_frameworks[0] : null;
+      const fw = embeddedRows(item.inspiration_frameworks)[0] ?? null;
       const itemMeta = {
         id: item.id,
         title: item.title,

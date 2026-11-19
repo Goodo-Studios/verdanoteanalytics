@@ -40,6 +40,11 @@ vi.mock("@/contexts/AccountContext", () => ({
   }),
 }));
 vi.mock("@/hooks/useClientPreviewMode", () => ({ useClientPreview: () => ({ isClientPreview: false }) }));
+// Staff with All clients picked get the agency overview (overviewAllClients.test.tsx); these tests
+// cover the single-client Overview, so a client is picked.
+vi.mock("@/contexts/ClientSelectionContext", () => ({
+  useClientSelection: () => ({ selectedSlug: "glow", isLoading: false, clients: [] }),
+}));
 vi.mock("@/hooks/useRolePath", () => ({ useRolePrefix: () => "/builder", useRoleNavigate: () => h.navigate }));
 vi.mock("@/hooks/useSyncApi", () => ({ useSync: () => ({ mutate: h.sync, isPending: false }) }));
 vi.mock("@/hooks/useIsSyncing", () => ({ useIsSyncing: () => false }));

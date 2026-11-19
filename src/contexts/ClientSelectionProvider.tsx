@@ -77,7 +77,10 @@ export function ClientSelectionProvider({ children }: { children: ReactNode }) {
   }, [userId]);
 
   const fromUrl = useMemo(() => slugFromLocation(location.pathname, location.search), [location.pathname, location.search]);
-  const rawSlug = fromUrl.slug ?? stored;
+  // A client login never has a selection. Without this, ?client=<another client> in the address (or a
+  // slug left in this browser's storage) became the "selected client" for pages that read it, so a
+  // client could aim its pages at someone else's slug. A client's data is scoped by its own rows.
+  const rawSlug = isClient ? "" : fromUrl.slug ?? stored;
   // A remembered or linked client that no longer exists counts as "all clients". The client
   // hub path keeps its slug so the hub can say it could not find that client.
   const slugKnown = !clientsQuery.isSuccess || (clientsQuery.data ?? []).some((c) => c.slug === rawSlug);

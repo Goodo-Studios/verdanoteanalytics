@@ -1,7 +1,8 @@
 // Ad Name Generator: the old goodo-ad-name-generator screen, inside the staff area for
 // builders and employees. Ported as-is. The ad code comes from Verdanote's own counter
-// (public.ad_name_counter through peek_ad_code and claim_ad_code, migration
-// 20261101000005); both functions refuse anyone who is not builder or employee.
+// (public.ad_name_counter, migration 20261101000005): peek_ad_code previews it, and
+// claim_and_save_ad_name (audit 5.8) spends it and saves the name, its client and its
+// six tags in name_mappings in one step. Both refuse anyone who is not builder or employee.
 //
 // The code is only spent when the name is copied. There is no random fallback when the
 // counter cannot be reached: a duplicate ad name is worse than no name.
@@ -19,6 +20,8 @@ import {
   emptyFields,
   formatCode,
   isComplete,
+  nameTail,
+  tagsFor,
   toCode,
   validate,
   type AdNameFields,
@@ -34,11 +37,22 @@ async function peekCode(): Promise<string> {
   return toCode(data);
 }
 
-/** Spend the next code. Called once, at the moment the name is copied. */
-async function claimCode(): Promise<string> {
-  const { data, error } = await supabase.rpc("claim_ad_code");
+/**
+ * Spend the next code and save the name with its client and tags (audit 5.8). Called once,
+ * at the moment the name is copied. Returns the code and the full name the server saved.
+ */
+async function claimAndSave(fields: AdNameFields, themeFromList: boolean): Promise<{ code: string; name: string }> {
+  const { data, error } = await supabase.rpc("claim_and_save_ad_name", {
+    p_account_id: fields.accountId,
+    p_name_tail: nameTail(fields),
+    p_tags: tagsFor(fields, themeFromList),
+  });
   if (error) throw new Error(error.message);
-  return toCode(data);
+  const saved = (data ?? {}) as { code?: unknown; ad_name?: unknown };
+  if (typeof saved.ad_name !== "string" || !saved.ad_name) {
+    throw new Error("The saved name came back empty.");
+  }
+  return { code: toCode(saved.code), name: saved.ad_name };
 }
 
 /** Active ad accounts and their Theme / Persona lists (angle_clusters), read with the staff session. */
@@ -142,9 +156,9 @@ export default function AdNameGeneratorPage() {
     try {
       // Spend the code only now. The claimed number can differ from the preview if
       // someone else copied first, so the copied name always uses the claimed value.
-      const claimed = await claimCode();
-      const claimedFields = { ...fields, uniqueCode: claimed };
-      const finalName = buildAdName(claimedFields);
+      const saved = await claimAndSave(fields, hasGovernedThemes);
+      const claimedFields = { ...fields, uniqueCode: saved.code };
+      const finalName = saved.name;
       setFields(claimedFields);
       // The code is spent. If the browser refuses the clipboard, keep the name on screen
       // to copy by hand instead of inviting a retry that would spend a second code.
