@@ -87,3 +87,19 @@ Deno.test("cluster-creatives lets go of what it no longer needs", async () => {
   assert(src.includes("buildParticipants(db,"), "participants are built by the module that clears raw rows");
   assert(src.includes("batchGroups.length = 0"), "the per-batch groups are dropped after the merge");
 });
+
+// After the release that carried the first memory fix, Miracle's second account grouped fine but
+// Cattasaurus (5,208 ads, 2,193 groups) was still stopped with WORKER_RESOURCE_LIMIT, after all of
+// its groups were saved and while its ads were being restamped. The merged groups (three centre
+// vectors each) and the saved rows (one more centre each) were still held at that point.
+Deno.test("cluster-creatives drops the merged groups before saving and the saved rows before restamping", async () => {
+  const src = await Deno.readTextFile(new URL("./index.ts", import.meta.url));
+  const loopEnd = src.indexOf("await saveEntities(db, entityRows)");
+  assert(loopEnd > 0, "saveEntities call present");
+  const beforeSave = src.slice(0, loopEnd);
+  assert(beforeSave.includes("built.length = 0"), "the merged groups are dropped once the rows and stamps are built");
+  assert(beforeSave.includes("groups.length = 0"), "the merged group list is dropped too");
+  assert(beforeSave.includes("candidates.length = 0"), "the match candidates are dropped too");
+  const afterSave = src.slice(loopEnd, src.indexOf("await restampInSteps("));
+  assert(afterSave.includes("entityRows.length = 0"), "the saved rows are dropped before the members are restamped");
+});
