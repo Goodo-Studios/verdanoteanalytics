@@ -93,6 +93,41 @@ export function sortBlocks(blocks: ShootBlock[]): ShootBlock[] {
   return [...blocks].sort((a, b) => a.start_time.localeCompare(b.start_time) || a.label.localeCompare(b.label));
 }
 
+export interface GridDay {
+  date: string;
+  inMonth: boolean;
+}
+
+/** Whole weeks (Sunday first) covering a month. Days outside the month are marked so the grid can dim them. */
+export function monthGrid(month: string): GridDay[][] {
+  const [y, m] = month.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1, 1));
+  const start = Date.UTC(y, m - 1, 1 - first.getUTCDay());
+  const lastDay = new Date(Date.UTC(y, m, 0));
+  const weeks = Math.ceil((first.getUTCDay() + lastDay.getUTCDate()) / 7);
+  const out: GridDay[][] = [];
+  for (let w = 0; w < weeks; w++) {
+    const row: GridDay[] = [];
+    for (let d = 0; d < 7; d++) {
+      const dt = new Date(start + (w * 7 + d) * 86400000);
+      const date = `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`;
+      row.push({ date, inMonth: monthOf(dt) === month });
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+/** Shoots keyed by their date, for placing them on the month grid. */
+export function shootsByDay(shoots: Shoot[]): Map<string, Shoot[]> {
+  return new Map(groupByDate(shoots));
+}
+
+/** Active clients, plus the one already chosen so an older shoot on an inactive client keeps its client. */
+export function activeClientOptions<T extends { slug: string; active: boolean }>(brands: T[], selected: string): T[] {
+  return brands.filter((b) => b.active || b.slug === selected);
+}
+
 export function callSheetState(s: Shoot): "none" | "live" | "revoked" {
   if (!s.call_sheets.length) return "none";
   return s.call_sheets.some((c) => !c.revoked) ? "live" : "revoked";

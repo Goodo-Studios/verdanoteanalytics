@@ -146,7 +146,7 @@ export default function ApplicationsPage({ lockedKind }: { lockedKind?: Applicat
       <FilterBar search={{ value: search, onChange: setSearch, label: "Search applications", placeholder: "Search name, email, location" }}>
         <Button type="button" variant={status === "pending" ? "secondary" : "outline"} size="sm" className="h-10" aria-pressed={status === "pending"} onClick={() => go({ status: "pending" })}>Pending ({counts.pending})</Button>
         <Button type="button" variant={status === "rejected" ? "secondary" : "outline"} size="sm" className="h-10" aria-pressed={status === "rejected"} onClick={() => go({ status: "rejected" })}>Rejected ({counts.rejected})</Button>
-        <span className="flex h-10 items-center text-xs text-muted-foreground">{counts.approved} approved, now on the <Link to={`${prefix}/${kind}`} className="ml-1 underline">{kind === "creators" ? "Creators" : "Actors"}</Link>&nbsp;page.</span>
+        <span className="flex h-10 items-center text-xs text-muted-foreground">{counts.approved} approved, now on the {kind === "creators" ? "Creators" : "Actors"} page.</span>
       </FilterBar>
 
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}

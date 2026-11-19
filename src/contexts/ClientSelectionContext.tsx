@@ -14,6 +14,8 @@ export interface SwitcherClient {
   slug: string;
   name: string;
   active: boolean;
+  /** Runs creators for this client. Absent on older rows, which count as yes. */
+  does_creators?: boolean;
 }
 export interface ClientAccountLink {
   account_id: string;

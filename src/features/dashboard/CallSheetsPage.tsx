@@ -306,11 +306,6 @@ export default function CallSheetsPage() {
       <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900" data-testid="call-sheets-old-dashboard-note">
         Crew and clients open call sheets on Verdanote with no login, and a link stops 30 days after the shoot. Revoke stops a link at once. Talent lines, rate notes and internal notes are staff only and never appear on the public page.
       </p>
-      <div className="flex flex-wrap gap-3 text-sm">
-        <Link to={`${prefix}/production-calendar`} className="underline">Production calendar</Link>
-        <Link to={`${prefix}/crew`} className="underline">Crew</Link>
-        <Link to={`${prefix}/locations`} className="underline">Locations</Link>
-      </div>
       {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
 
