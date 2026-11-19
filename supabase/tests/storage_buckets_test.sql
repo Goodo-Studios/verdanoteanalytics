@@ -7,8 +7,9 @@
 -- one file in every bucket, under other/<other user id>/.
 --
 -- Checks
---   1. The buckets are exactly the 20 production has (production-check 2026-11-15), so a bucket
---      made by hand in the dashboard and missing from migrations fails CI.
+--   1. The buckets are exactly the 20 production had (production-check 2026-11-15) plus
+--      staff-documents (migration 20261217020001), so a bucket made by hand in the dashboard and
+--      missing from migrations fails CI.
 --   2. Only ad-media, ad-thumbnails and ad-videos are public.
 --   3. One file was seeded in every bucket, so the checks below cannot pass by seeing nothing.
 --   4. anon reads no file in a private bucket.
@@ -46,9 +47,9 @@ SELECT set_eq(
     'actor-videos', 'ad-media', 'ad-thumbnails', 'ad-videos', 'annotations', 'company-docs',
     'creative-archive', 'creator-application-headshots', 'creator-application-videos',
     'creator-family-pet-photos', 'creator-filming-locations', 'creator-headshots', 'creator-videos',
-    'inspiration-media', 'location-photos', 'moodboard-refs'
+    'inspiration-media', 'location-photos', 'moodboard-refs', 'staff-documents'
   ],
-  'the buckets are exactly the 20 that production has'
+  'the buckets are exactly the 20 that production had plus staff-documents'
 );
 
 -- 2. Only the three ad media buckets are public.

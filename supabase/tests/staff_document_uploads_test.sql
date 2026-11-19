@@ -59,8 +59,9 @@ SELECT is((SELECT version::text || ':' || source || ':' || data_origin FROM publ
   '1:upload:real', 'an employee adds BID version 1 with source upload');
 SELECT is(public.add_client_bid('up-alpha', 'Alpha BID again', E'## 1. Company\n\nMade-up text.')::text, (SELECT v FROM made WHERE k = 'bid1'),
   'the same BID text returns the same version');
-SELECT is((SELECT (public.add_client_bid('up-alpha', 'Alpha BID', E'## 1. Company\n\nRevised text.') IS NOT NULL)::text || ':' || max(version)::text FROM public.client_bids WHERE client_slug = 'up-alpha'),
-  'true:2', 'new BID text is version 2');
+INSERT INTO made SELECT 'bid2', public.add_client_bid('up-alpha', 'Alpha BID', E'## 1. Company\n\nRevised text.')::text;
+SELECT is((SELECT max(version)::text FROM public.client_bids WHERE client_slug = 'up-alpha'),
+  '2', 'new BID text is version 2');
 SELECT is((SELECT file_name || ':' || area FROM public.staff_document_files WHERE target_id = (SELECT v::uuid FROM made WHERE k = 'bid1')), 'alpha.md:bid',
   'the BID file record is saved');
 SELECT throws_ok($$SELECT public.add_client_bid('up-alpha', 'X', 'Body', 'brain/e8/x.md', 'x.md', 'text/markdown', 10)$$, '22023', NULL,
@@ -81,7 +82,7 @@ SELECT is((public.upload_brain_page('Playbooks', 'Launch Playbook!', E'# Launch\
 SELECT is((public.upload_brain_page('Playbooks', 'Launch Playbook!', E'# Launch\n\nMore steps.'))->>'slug', 'launch-playbook-2', 'a second page with the same title gets a unique slug');
 
 -- ---------------------------------------------------------------- results (22-24)
-SELECT is((SELECT edited_in_app::text || ':' || owner || ':' || source_path LIKE 'app-upload/%' FROM public.brain_pages WHERE slug = 'launch-playbook'),
+SELECT is((SELECT edited_in_app::text || ':' || owner || ':' || (source_path LIKE 'app-upload/%')::text FROM public.brain_pages WHERE slug = 'launch-playbook'),
   'true:Sam:true', 'an uploaded page is marked edited in the app so the publish script keeps it');
 SELECT throws_ok($$SELECT public.upload_brain_page('Notes', 'X', 'Body')$$, '23514', NULL, 'a section that is not one of the four is refused');
 
