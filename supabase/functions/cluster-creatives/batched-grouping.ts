@@ -10,8 +10,9 @@
 //   2. mergeBatchGroups - join groups from different batches. Groups that share an exact anchor
 //                        (asset key, Meta video id, image hash) are one unit, because identity is
 //                        transitive. Everything else is joined by COMPLETE linkage over the group
-//                        centres, so the merge cannot chain the way single linkage did (97% of an
-//                        account in one group, see index.ts).
+//                        centres at a similarity of 0.95 (MERGE_CENTRE_SIMILARITY), so the merge
+//                        cannot chain the way single linkage did (97% of an account in one group,
+//                        see index.ts).
 //
 // A merged group is "exact" only when its parts were joined through anchors alone, and it is
 // coherent on a modality only when every part is and every part's centre sits within the
@@ -207,9 +208,20 @@ function groupDistance(a: GroupSummary, b: GroupSummary): number {
 }
 
 /**
+ * Centre similarity two batch groups need to merge. Higher than the 0.7 grouping threshold on
+ * purpose: a group's centre is an average of its members, so two centres score as more similar
+ * than their members do, and merging at 0.7 collapsed Bearaby's 1,862 embedded ads into 20
+ * groups with a largest of 848, against 75 and 155 for one complete-linkage pass over the
+ * members. Measured on Bearaby and Flatpack (2026-11-19), 0.95 lands closest to the single
+ * pass: 84 and 46 groups against 75 and 44, largest 240 and 374 against 155 and 361.
+ */
+export const MERGE_CENTRE_SIMILARITY = 0.95;
+
+/**
  * Merge groups made in different batches. Groups sharing an anchor are one unit; the rest join
- * by complete linkage over their centres at `threshold`. The result does not depend on the
- * order the groups arrive in, and is sorted by each group's lowest ad id.
+ * by complete linkage over their centres at MERGE_CENTRE_SIMILARITY, or at `threshold` when the
+ * caller asks for something stricter. The result does not depend on the order the groups
+ * arrive in, and is sorted by each group's lowest ad id.
  */
 export function mergeBatchGroups(groups: GroupSummary[], threshold: number): GroupSummary[] {
   const sorted = [...groups].sort((a, b) => groupKey(a).localeCompare(groupKey(b)));
@@ -237,7 +249,8 @@ export function mergeBatchGroups(groups: GroupSummary[], threshold: number): Gro
   }
   const seedBlocks = [...blockMap.values()].filter((b) => b.length > 1);
 
-  const joined = completeLinkageBlocks(n, (i, j) => groupDistance(sorted[i], sorted[j]), 1 - threshold, seedBlocks);
+  const mergeSimilarity = Math.max(threshold, MERGE_CENTRE_SIMILARITY);
+  const joined = completeLinkageBlocks(n, (i, j) => groupDistance(sorted[i], sorted[j]), 1 - mergeSimilarity, seedBlocks);
 
   const out = joined.map((idxs) => {
     const parts = idxs.map((i) => sorted[i]);
