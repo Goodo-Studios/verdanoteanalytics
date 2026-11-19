@@ -4,6 +4,17 @@
 export const BRAIN_SECTIONS = ["Handbook", "Playbooks", "Clients", "Insights"] as const;
 export type BrainSection = (typeof BRAIN_SECTIONS)[number];
 
+/**
+ * What the tabs say. The stored section value stays "Handbook" (the database rule and the publish
+ * script use it); the owner wants it shown as "Handbooks", next to Playbooks, Clients and Insights.
+ */
+export const SECTION_LABEL: Record<BrainSection, string> = {
+  Handbook: "Handbooks",
+  Playbooks: "Playbooks",
+  Clients: "Clients",
+  Insights: "Insights",
+};
+
 export const SECTION_BLURB: Record<BrainSection, string> = {
   Handbook: "How Goodo works: company, roles, policies and brand.",
   Playbooks: "How we do the work, step by step.",
@@ -42,7 +53,8 @@ export interface BrainPageRow extends BrainListRow {
 
 /** Section from the address (?section=playbooks), Handbook when missing or unknown. */
 export function sectionFromParam(value: string | null): BrainSection {
-  const hit = BRAIN_SECTIONS.find((s) => s.toLowerCase() === (value ?? "").toLowerCase());
+  const v = (value ?? "").toLowerCase();
+  const hit = BRAIN_SECTIONS.find((s) => s.toLowerCase() === v || SECTION_LABEL[s].toLowerCase() === v);
   return hit ?? "Handbook";
 }
 

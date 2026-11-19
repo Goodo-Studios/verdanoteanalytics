@@ -51,6 +51,7 @@ const h = vi.hoisted(() => ({
   rpcError: null as null | { code: string; message: string },
   invokes: [] as Array<{ name: string; body: unknown }>,
   answer: null as unknown,
+  uploads: [] as string[],
 }));
 let auth = { isBuilder: false, isEmployee: true, user: { id: ME } as { id: string } | null };
 
@@ -79,8 +80,10 @@ vi.mock("@/integrations/supabase/client", () => {
           const page = Object.values(PAGES).find((pg) => pg.id === args.p_page_id);
           if (page) Object.assign(page, { body_md: args.p_body_md, edited_in_app: true, edited_at: "2026-11-12T10:00:00Z", updated_at: "2026-11-12T10:00:00.5+00:00" });
         }
+        if (name === "upload_brain_page" && !h.rpcError) return Promise.resolve({ data: { id: "up-1", slug: "launch-playbook", section: args.p_section }, error: null });
         return Promise.resolve({ data: "new-id", error: h.rpcError });
       },
+      storage: { from: () => ({ upload: (path: string) => { h.uploads.push(path); return Promise.resolve({ error: null }); }, remove: () => Promise.resolve({ error: null }) }) },
       // OS-026: ask the Brain.
       functions: {
         invoke: (name: string, opts: { body: unknown }) => {
@@ -111,6 +114,7 @@ beforeEach(() => {
   h.rpcError = null;
   h.invokes = [];
   h.answer = null;
+  h.uploads = [];
   auth = { isBuilder: false, isEmployee: true, user: { id: ME } };
 });
 
@@ -118,7 +122,7 @@ describe("BrainPage", () => {
   it("shows the four sections with counts and the Handbook list with owner, review date and the review tag", async () => {
     renderAt();
     const nav = screen.getByRole("navigation", { name: "Brain sections" });
-    expect(within(nav).getAllByRole("button").map((b) => b.textContent?.replace(/\s*\d+$/, ""))).toEqual(["Handbook", "Playbooks", "Clients", "Insights"]);
+    expect(within(nav).getAllByRole("button").map((b) => b.textContent?.replace(/\s*\d+$/, ""))).toEqual(["Handbooks", "Playbooks", "Clients", "Insights"]);
     const list = await screen.findByTestId("brain-list");
     expect(within(nav).getByRole("button", { name: /Handbook/ }).getAttribute("aria-current")).toBe("page");
     expect(within(nav).getByRole("button", { name: /Handbook/ }).textContent).toContain("2");
@@ -146,7 +150,43 @@ describe("BrainPage", () => {
     expect(screen.getByText(/Not reviewed yet/)).toBeTruthy();
     expect(screen.getByTestId("brain-needs-review")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Insights/ }));
-    expect(await screen.findByText("Nothing has been published to Insights yet.")).toBeTruthy();
+    expect(await screen.findByText("Nothing is in Insights yet. Upload a document above, or publish from HQ.")).toBeTruthy();
+  });
+
+  it("staff upload a playbook file into the Playbooks section and land on the new page", async () => {
+    renderAt("?section=playbooks");
+    await screen.findByTestId("brain-list");
+    fireEvent.click(screen.getByText("Upload a document"));
+    const section = screen.getByLabelText("Upload section") as HTMLSelectElement;
+    expect(section.value).toBe("Playbooks");
+    expect(within(section).getAllByRole("option").map((o) => o.textContent)).toEqual(["Handbooks", "Playbooks", "Clients", "Insights"]);
+    const md = new File(["# Launch playbook\n\nStep one."], "launch-playbook.md");
+    fireEvent.change(screen.getByLabelText("Document file"), { target: { files: [md] } });
+    fireEvent.change(screen.getByLabelText("Upload owner"), { target: { value: "Sam" } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await waitFor(() => expect(h.rpcs.find((r) => r.name === "upload_brain_page")?.args).toMatchObject({
+      p_section: "Playbooks", p_title: "Launch playbook", p_body_md: "# Launch playbook\n\nStep one.", p_owner: "Sam", p_file_name: "launch-playbook.md", p_mime_type: "text/markdown",
+    }));
+    expect(h.uploads[0]).toMatch(/^brain\/[0-9a-f-]{36}\/launch-playbook\.md$/);
+    // The new page opens.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Back to Playbooks" })).toBeTruthy());
+  });
+
+  it("uploads pasted text to the chosen section and shows a refusal in plain words", async () => {
+    renderAt();
+    await screen.findByTestId("brain-list");
+    fireEvent.click(screen.getByText("Upload a document"));
+    fireEvent.change(screen.getByLabelText("Upload section"), { target: { value: "Insights" } });
+    fireEvent.change(screen.getByLabelText("Upload text"), { target: { value: "Short hooks win." } });
+    h.rpcError = { code: "23514", message: "check" };
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("200,000 characters");
+    expect(h.rpcs.find((r) => r.name === "upload_brain_page")?.args).toMatchObject({ p_section: "Insights", p_body_md: "Short hooks win.", p_file_path: null });
+  });
+
+  it("the Handbooks address opens the Handbooks tab", async () => {
+    renderAt("?section=handbooks");
+    expect((await screen.findByRole("button", { name: /Handbooks/ })).getAttribute("aria-current")).toBe("page");
   });
 
   it("opens a page with owner, last reviewed and safe markdown, and follows a Brain link", async () => {
