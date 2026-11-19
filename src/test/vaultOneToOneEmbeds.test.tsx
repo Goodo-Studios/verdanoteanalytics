@@ -82,7 +82,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import ItemDetailPage from "@/features/vault/ItemDetailPage";
 import HooksPage from "@/features/vault/HooksPage";
 
-function renderAt(path: string, routePath: string, element: JSX.Element) {
+function renderAt(path: string, routePath: string, element: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
