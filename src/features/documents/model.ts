@@ -181,7 +181,7 @@ export async function extractDocumentText(file: File): Promise<ExtractedText> {
   if (kind === "pdf") return { text: "", kind };
   try {
     if (kind === "docx") return { text: await docxToMarkdown(await readAsBuffer(file)), kind };
-    return { text: (await readAsText(file)).replace(/^﻿/, ""), kind };
+    return { text: (await readAsText(file)).replace(/^\uFEFF/, ""), kind };
   } catch {
     throw new Error("That file could not be read. Check that it opens on your computer, or paste the text instead.");
   }
