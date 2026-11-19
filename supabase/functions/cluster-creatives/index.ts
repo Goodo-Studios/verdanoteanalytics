@@ -36,10 +36,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { json } from "../_shared/cors.ts";
 import { requireServiceRole } from "../_shared/internal-auth.ts";
 import { GROUPING_BATCH, GROUPING_MAX_ADS, loadGroupingInputs } from "../_shared/grouping-inputs.ts";
-import { loadAssetKeys } from "./asset-keys.ts";
 import { saveEntities } from "./entity-writes.ts";
 import { restampInSteps } from "./restamp.ts";
-import { type ExistingEntityRow, loadExistingEntityRows, retireEntities } from "./entity-reads.ts";
+import { loadExistingEntityRows, retireEntities, toExistingEntities } from "./entity-reads.ts";
+import { buildParticipants } from "./participants.ts";
 import {
   clusterBatch,
   type GroupSummary,
@@ -54,7 +54,6 @@ import {
   clusterLabel,
   clusterStats,
   effectiveEntities,
-  type ExistingEntity,
   matchGroupsToEntities,
   representativeAdId,
 } from "../_shared/entity-clustering.ts";
@@ -64,93 +63,6 @@ const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const MODEL = "openai/text-embedding-3-small";
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
-// pgvector columns come back over PostgREST as a JSON string "[0.1,0.2,...]".
-function parseEmbedding(v: unknown): number[] | null {
-  if (Array.isArray(v)) return v as number[];
-  if (typeof v === "string") {
-    try {
-      const parsed = JSON.parse(v);
-      return Array.isArray(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-const arr = (v: unknown): string[] =>
-  Array.isArray(v) ? (v as unknown[]).map(String).filter(Boolean) : [];
-
-// Turn one batch of creative rows into participants: parse their embeddings, resolve asset ids to
-// asset keys (the primary exact anchor), and keep only ads that can cluster (an embedding in any
-// modality, or at least one anchor).
-async function buildParticipants(
-  creatives: Record<string, unknown>[],
-  embeddings: Map<string, Record<string, unknown>>,
-): Promise<Participant[]> {
-  const embById = new Map<string, number[]>();
-  const visualById = new Map<string, number[]>();
-  const scriptById = new Map<string, number[]>();
-  for (const [adId, row] of embeddings) {
-    const e = parseEmbedding(row.embedding);
-    if (e) embById.set(adId, e);
-    const ve = parseEmbedding(row.visual_embedding);
-    if (ve) visualById.set(adId, ve);
-    const se = parseEmbedding(row.script_embedding);
-    if (se) scriptById.set(adId, se);
-  }
-
-  const participants: Participant[] = [];
-  const assetIdSet = new Set<string>();
-  for (const row of creatives) {
-    const adId = row.ad_id as string;
-    if (row.thumb_asset_id) assetIdSet.add(row.thumb_asset_id as string);
-    if (row.video_asset_id) assetIdSet.add(row.video_asset_id as string);
-    participants.push({
-      ad_id: adId,
-      embedding: embById.get(adId) ?? null,
-      visualEmb: visualById.get(adId) ?? null,
-      scriptEmb: scriptById.get(adId) ?? null,
-      destinationKey: (row.destination_key as string) ?? null,
-      assetKeys: [], // filled after the media_assets lookup
-      metaVideoIds: arr(row.meta_video_ids),
-      metaImageHashes: arr(row.meta_image_hashes),
-      ad_name: (row.ad_name as string) ?? undefined,
-      metrics: {
-        ad_id: adId,
-        spend: Number(row.spend) || 0,
-        roas: Number(row.roas) || 0,
-        ctr: Number(row.ctr) || 0,
-        cpa: Number(row.cpa) || 0,
-        tag_source: (row.tag_source as string) ?? null,
-        tags: {
-          ad_type: row.ad_type as string, person: row.person as string,
-          style: row.style as string, product: row.product as string,
-          hook: row.hook as string, theme: row.theme as string,
-        },
-      },
-    });
-  }
-
-  const assetKeyById = await loadAssetKeys(db, [...assetIdSet]);
-  const byAd = new Map(creatives.map((c) => [c.ad_id as string, c]));
-  for (const p of participants) {
-    const raw = byAd.get(p.ad_id);
-    const keys: string[] = [];
-    const thumb = raw?.thumb_asset_id as string | null | undefined;
-    const video = raw?.video_asset_id as string | null | undefined;
-    if (thumb && assetKeyById.has(thumb)) keys.push(assetKeyById.get(thumb)!);
-    if (video && assetKeyById.has(video)) keys.push(assetKeyById.get(video)!);
-    p.assetKeys = keys;
-  }
-
-  return participants.filter(
-    (p) =>
-      p.embedding || p.visualEmb || p.scriptEmb ||
-      p.assetKeys.length || p.metaVideoIds.length || p.metaImageHashes.length,
-  );
-}
 
 Deno.serve(async (req) => {
 
@@ -190,7 +102,7 @@ Deno.serve(async (req) => {
 
     let items: Participant[];
     try {
-      items = await buildParticipants(fresh, inputs.embeddings);
+      items = await buildParticipants(db, fresh, inputs.embeddings);
     } catch (e) {
       return json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
@@ -205,25 +117,17 @@ Deno.serve(async (req) => {
 
   // Merge the batches: shared anchors are one unit, the rest by complete linkage over centres.
   const groups = mergeBatchGroups(batchGroups, threshold);
+  batchGroups.length = 0; // the per-batch groups (three centre vectors each) are not needed after the merge
 
   // 4. Existing entities for the account (for match-not-regenerate).
   //    Paged, so accounts with more than 1,000 groups see all of them (7.3 follow-up).
-  let existRows: ExistingEntityRow[];
+  let existing;
   try {
-    existRows = await loadExistingEntityRows(db, accountId);
+    existing = toExistingEntities(await loadExistingEntityRows(db, accountId));
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
-  const existing: ExistingEntity[] = existRows.map((r) => {
-    const row = r as Record<string, unknown>;
-    return {
-      id: row.id as string,
-      centroid: parseEmbedding(row.centroid),
-      assetKeys: arr(row.asset_keys),
-      metaVideoIds: arr(row.meta_video_ids),
-      metaImageHashes: arr(row.meta_image_hashes),
-    };
-  });
+  const existingIds = existing.map((e) => e.id);
 
   // 5. Build candidate groups (anchors + centroid + stable key) and match.
   const built = groups.map((g) => ({
@@ -240,6 +144,7 @@ Deno.serve(async (req) => {
     assetKeys: g.group.assetKeys, metaVideoIds: g.group.metaVideoIds, metaImageHashes: g.group.metaImageHashes,
   }));
   const matched = matchGroupsToEntities(candidates, existing, threshold);
+  existing.length = 0; // the stored centre vectors are not needed again; only the ids are kept
 
   // 6. Upsert entities in place (persistent ids), then restamp members. restampInSteps
   //    changes only creatives whose stamp differs, a few hundred per database call, so
@@ -318,7 +223,7 @@ Deno.serve(async (req) => {
 
   // 7. Retire entities not seen this run (empty). Ids are UUIDs — never reused.
   const assignedSet = new Set(assignedIds);
-  const staleIds = existing.map((e) => e.id).filter((id) => !assignedSet.has(id));
+  const staleIds = existingIds.filter((id) => !assignedSet.has(id));
   let retired: number;
   try {
     retired = await retireEntities(db, staleIds);

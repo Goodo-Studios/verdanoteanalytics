@@ -85,4 +85,5 @@ Deno.test("cluster-creatives lets go of what it no longer needs", async () => {
   assert(src.includes("const existingIds"), "the ids needed for retirement are captured on their own");
   assert(src.includes("existing.length = 0"), "the parsed centres are dropped once matching is done");
   assert(src.includes("buildParticipants(db,"), "participants are built by the module that clears raw rows");
+  assert(src.includes("batchGroups.length = 0"), "the per-batch groups are dropped after the merge");
 });
