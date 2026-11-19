@@ -25,28 +25,52 @@ const embeddingAnswer = (op: Op) => {
   return embeddings.filter((e) => ids.has(e.ad_id));
 };
 
-Deno.test("grouping takes the newest 1,000 running ads", async () => {
-  const { loadGroupingInputs, GROUPING_CAP } = await load();
-  assertEquals(GROUPING_CAP, 1000);
+Deno.test("grouping reads running ads one batch at a time, newest first", async () => {
+  const { loadGroupingInputs, GROUPING_BATCH, GROUPING_MAX_ADS } = await load();
+  assertEquals(GROUPING_BATCH, 500);
+  assert(GROUPING_MAX_ADS >= 10000, "a ceiling well above the largest account (about 5,800 running ads)");
   const db = fakeSupabase({ tables: { creatives: active, creative_embeddings: embeddingAnswer } });
-  const out = await loadGroupingInputs(db.client, "act_1", "ad_id", GROUPING_CAP);
-  assertEquals(out.creatives.length, 1000);
-  assertEquals(out.creatives[0].ad_id, "ad0000");
-  assertEquals(out.creatives[999].ad_id, "ad0999");
+  const first = await loadGroupingInputs(db.client, "act_1", "ad_id", GROUPING_BATCH, 0);
+  assertEquals(first.creatives.length, 500);
+  assertEquals(first.creatives[0].ad_id, "ad0000");
+  assertEquals(first.creatives[499].ad_id, "ad0499");
+  const second = await loadGroupingInputs(db.client, "act_1", "ad_id", GROUPING_BATCH, 500);
+  assertEquals(second.creatives.length, 500);
+  assertEquals(second.creatives[0].ad_id, "ad0500");
+  assertEquals(second.creatives[499].ad_id, "ad0999");
   const reads = db.ops.filter((o) => o.table === "creatives");
   for (const r of reads) {
     assert(r.filters.some(([m, c, v]) => m === "eq" && c === "ad_status" && v === "ACTIVE"), "running ads only");
     assert(r.filters.some(([m, c, v]) => m === "eq" && c === "account_id" && v === "act_1"), "one account");
-    assert(r.range && r.range[1] < 1000, "never reads past the cap");
+    assert(r.range && r.range[1] - r.range[0] < 500, "never reads more than one batch at a time");
   }
+});
+
+Deno.test("walking the batches covers every running ad exactly once, and a short last batch ends the walk", async () => {
+  const { loadGroupingInputs, GROUPING_BATCH } = await load();
+  const db = fakeSupabase({ tables: { creatives: active, creative_embeddings: embeddingAnswer } });
+  const seen: string[] = [];
+  const sizes: number[] = [];
+  for (let offset = 0; ; offset += GROUPING_BATCH) {
+    const out = await loadGroupingInputs(db.client, "act_1", "ad_id", GROUPING_BATCH, offset);
+    sizes.push(out.creatives.length);
+    for (const c of out.creatives) {
+      seen.push(c.ad_id);
+      assert(out.embeddings.has(c.ad_id), "each ad in the batch has its embedding");
+    }
+    if (out.creatives.length < GROUPING_BATCH) break;
+  }
+  assertEquals(seen.length, 2500);
+  assertEquals(new Set(seen).size, 2500);
+  assertEquals(sizes, [500, 500, 500, 500, 500, 0]);
 });
 
 Deno.test("every grouped ad gets its embedding, read by ad id in small batches", async () => {
   const { loadGroupingInputs } = await load();
   const db = fakeSupabase({ tables: { creatives: active, creative_embeddings: embeddingAnswer } });
-  const out = await loadGroupingInputs(db.client, "act_1", "ad_id", 1000);
+  const out = await loadGroupingInputs(db.client, "act_1", "ad_id", 500, 0);
   const withEmbedding = out.creatives.filter((c: { ad_id: string }) => out.embeddings.has(c.ad_id));
-  assertEquals(withEmbedding.length, 1000);
+  assertEquals(withEmbedding.length, 500);
   const embReads = db.ops.filter((o) => o.table === "creative_embeddings");
   assert(embReads.length > 0);
   for (const r of embReads) {
@@ -63,7 +87,7 @@ Deno.test("a failed embeddings read is an error, not a silent gap", async () => 
   });
   let threw = false;
   try {
-    await loadGroupingInputs(db.client, "act_1", "ad_id", 1000);
+    await loadGroupingInputs(db.client, "act_1", "ad_id", 500, 0);
   } catch (e) {
     threw = String((e as Error).message).includes("timeout");
   }

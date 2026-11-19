@@ -1,30 +1,39 @@
 // Inputs for creative grouping (cluster-creatives), audit plan item 7.3.
 //
-// Matthew's decision (2026-11-16): group each account's newest 1,000 running ads, nightly.
-// Grouping every running ad needs a batched rebuild (accounts run up to about 5,000 active ads,
-// and most pairs score as similar), so the cap keeps one run inside the edge function limits.
-// Embeddings are read for exactly the chosen ads, by ad id in batches of 200. The old code read
-// the whole account's embeddings in one unpaged select, which stopped at 1,000 rows in no order.
+// Matthew's first decision (2026-11-16) was to group each account's newest 1,000 running ads,
+// because complete linkage over one account (up to about 5,800 running ads) needs an m by m
+// matrix and is roughly cubic. His second decision (2026-11-18, "option B") groups every
+// running ad: read the account in batches, group each batch on its own, then merge the batches
+// (cluster-creatives/batched-grouping.ts).
+//
+// This file reads one batch. Ads come newest first, with ad_id breaking ties, so batches never
+// overlap while nothing changes; the caller drops an ad it has already seen if new ads arrive
+// mid-run. Embeddings are read for exactly the batch's ads, by ad id in groups of 200. The
+// original code read the whole account's embeddings in one unpaged select, which stopped at
+// 1,000 rows in no order.
 // deno-lint-ignore-file no-explicit-any
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-export const GROUPING_CAP = 1000;
+/** Ads grouped together in one pass. Small enough that its distance matrix stays cheap. */
+export const GROUPING_BATCH = 500;
+/** Safety ceiling for one account. The largest has about 5,800 running ads. */
+export const GROUPING_MAX_ADS = 10000;
 const PAGE = 1000;
 const ID_BATCH = 200;
 
 export interface GroupingInputs {
-  /** The account's newest running ads, at most `cap`, newest first. */
+  /** One batch of the account's running ads, newest first. */
   creatives: Record<string, unknown>[];
   /** Embedding rows keyed by ad_id, for the ads above that have one. */
   embeddings: Map<string, Record<string, unknown>>;
 }
 
 export async function loadGroupingInputs(
-  db: any, accountId: string, creativeColumns: string, cap: number = GROUPING_CAP,
+  db: any, accountId: string, creativeColumns: string, size: number = GROUPING_BATCH, offset = 0,
 ): Promise<GroupingInputs> {
   const creatives: Record<string, unknown>[] = [];
-  for (let from = 0; from < cap; from += PAGE) {
-    const to = Math.min(from + PAGE, cap) - 1;
+  for (let from = 0; from < size; from += PAGE) {
+    const to = Math.min(from + PAGE, size) - 1;
     const { data, error } = await db
       .from("creatives")
       .select(creativeColumns)
@@ -34,7 +43,7 @@ export async function loadGroupingInputs(
       // Newest first; ad_id breaks ties so pages never overlap.
       .order("created_time", { ascending: false, nullsFirst: false })
       .order("ad_id", { ascending: true })
-      .range(from, to);
+      .range(offset + from, offset + to);
     if (error) throw new Error(`creatives read: ${error.message}`);
     const rows = (data ?? []) as Record<string, unknown>[];
     creatives.push(...rows);
