@@ -16,15 +16,17 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpc = vi.fn();
+const uploads: string[] = [];
 const calls: string[] = [];
 const rows: { current: unknown[] } = { current: [] };
 const fail: { current: boolean } = { current: false };
-let auth = { user: { id: "emp-1" }, isBuilder: false };
+let auth = { user: { id: "emp-1" }, isBuilder: false, isEmployee: true };
 
 vi.mock("@/contexts/AuthContext", () => ({ useAuth: () => auth }));
 vi.mock("@/integrations/supabase/client", () => {
   const query = (table: string) => {
     const q = {
+      eq: () => q,
       order: (column: string, opts?: unknown) => { calls.push(`order ${column} ${JSON.stringify(opts ?? null)}`); return q; },
       limit: (n: number, opts?: unknown) => { calls.push(`limit ${n} ${JSON.stringify(opts ?? null)}`); return q; },
       then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) =>
@@ -40,6 +42,7 @@ vi.mock("@/integrations/supabase/client", () => {
     supabase: {
       rpc: (...args: unknown[]) => rpc(...args),
       from: (table: string) => ({ select: () => query(table) }),
+      storage: { from: () => ({ upload: (path: string) => { uploads.push(path); return Promise.resolve({ error: null }); }, remove: () => Promise.resolve({ error: null }) }) },
     },
   };
 });
@@ -60,9 +63,10 @@ const OTHER = { ...SOURCE, id: "s2", title: "Glow brand voice", release_scope: "
 beforeEach(() => {
   rpc.mockReset();
   calls.length = 0;
+  uploads.length = 0;
   rows.current = [SOURCE, OTHER];
   fail.current = false;
-  auth = { user: { id: "emp-1" }, isBuilder: false };
+  auth = { user: { id: "emp-1" }, isBuilder: false, isEmployee: true };
 });
 
 async function open(title = "Hook rules") {
@@ -211,7 +215,7 @@ describe("KnowledgePage", () => {
   });
 
   it("a builder adds a source for one client", async () => {
-    auth = { user: { id: "b1" }, isBuilder: true };
+    auth = { user: { id: "b1" }, isBuilder: true, isEmployee: false };
     rpc.mockResolvedValue({ data: "s3", error: null });
     render(<KnowledgePage />);
     fireEvent.click(await screen.findByText(/Add knowledge/));
@@ -223,6 +227,55 @@ describe("KnowledgePage", () => {
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("create_knowledge_source", expect.objectContaining({
       p_title: "Glow offers", p_release_scope: "client", p_client_slug: "glow", p_classification: "staff",
     })));
+  });
+
+  it("staff upload a markdown file with a category and a client", async () => {
+    rpc.mockResolvedValue({ data: "s9", error: null });
+    render(<KnowledgePage />);
+    fireEvent.click(await screen.findByText("Upload a document"));
+    const md = new File(["# Launch playbook\n\nStep one."], "launch.md", { type: "" });
+    fireEvent.change(screen.getByLabelText("Document file"), { target: { files: [md] } });
+    fireEvent.change(await screen.findByLabelText("Upload category"), { target: { value: "playbook" } });
+    fireEvent.change(await screen.findByLabelText("Upload client"), { target: { value: "glow" } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("upload_knowledge_document", expect.objectContaining({
+      p_title: "Launch playbook", p_body: "# Launch playbook\n\nStep one.", p_category: "playbook", p_client_slug: "glow",
+      p_file_name: "launch.md", p_mime_type: "text/markdown",
+    })));
+    expect(uploads[0]).toMatch(/^knowledge\/[0-9a-f-]{36}\/launch\.md$/);
+    expect(await screen.findByText("Document uploaded.")).toBeTruthy();
+  });
+
+  it("staff upload pasted text with their own title and no client", async () => {
+    rpc.mockResolvedValue({ data: "s10", error: null });
+    render(<KnowledgePage />);
+    fireEvent.click(await screen.findByText("Upload a document"));
+    fireEvent.change(screen.getByLabelText("Upload title"), { target: { value: "Call notes" } });
+    fireEvent.change(screen.getByLabelText("Upload text"), { target: { value: "We agreed on hooks." } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("upload_knowledge_document", expect.objectContaining({
+      p_title: "Call notes", p_body: "We agreed on hooks.", p_category: "general", p_client_slug: null, p_file_path: null,
+    })));
+    expect(uploads).toHaveLength(0);
+  });
+
+  it("refuses a file type that is not allowed with a plain error and sends nothing", async () => {
+    render(<KnowledgePage />);
+    fireEvent.click(await screen.findByText("Upload a document"));
+    fireEvent.change(screen.getByLabelText("Document file"), { target: { files: [new File(["x"], "tool.exe")] } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("That file type is not supported");
+    expect(screen.getByRole("button", { name: "Upload" })).toHaveProperty("disabled", true);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("shows the database refusal as plain text and keeps what was typed", async () => {
+    rpc.mockResolvedValue({ data: null, error: { code: "42501", message: "insufficient_privilege" } });
+    render(<KnowledgePage />);
+    fireEvent.click(await screen.findByText("Upload a document"));
+    fireEvent.change(screen.getByLabelText("Upload text"), { target: { value: "Some text" } });
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+    expect(await screen.findByText("You are not allowed to do that here.")).toBeTruthy();
+    expect(screen.getByLabelText("Upload text")).toHaveProperty("value", "Some text");
   });
 
   it("says when there is no knowledge yet", async () => {

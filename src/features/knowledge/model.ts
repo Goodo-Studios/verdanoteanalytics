@@ -30,6 +30,18 @@ export interface KnowledgeSource {
   versions: SourceVersion[];
 }
 
+/** Categories offered when staff upload a document. The value is stored as the source's topic (namespace). */
+export const KNOWLEDGE_CATEGORIES = [
+  { value: "process", label: "Process" },
+  { value: "playbook", label: "Playbook" },
+  { value: "brand", label: "Brand" },
+  { value: "client-notes", label: "Client notes" },
+  { value: "reference", label: "Reference" },
+  { value: "general", label: "General" },
+] as const;
+
+export const categoryLabel = (namespace: string): string => KNOWLEDGE_CATEGORIES.find((c) => c.value === namespace)?.label ?? namespace;
+
 export const currentVersion = (s: KnowledgeSource): SourceVersion | undefined => s.versions.find((v) => v.version === s.current_version);
 
 /** Plain-language message for a database error code from the checked functions. */
@@ -42,7 +54,7 @@ export function errorText(code: string | undefined, fallback: string): string {
     case "22023":
       return "Nothing changed: the text is the same as what is saved.";
     case "23514":
-      return "Check the fields: a client-wide source needs a client, and text cannot be empty or over 20,000 characters.";
+      return "Check the fields: a client-wide source needs a client, and text cannot be empty or over 200,000 characters.";
     default:
       return fallback;
   }
