@@ -85,6 +85,8 @@ INSERT INTO allow
     'publish_knowledge_correction', 'rollback_knowledge_source',
     -- Edit a Knowledge source or Brain page in place. Both refuse anyone who is not builder or employee.
     'edit_knowledge_source', 'edit_brain_page',
+    -- Document uploads (20261216570001). Each refuses anyone who is not builder or employee.
+    'add_client_bid', 'upload_knowledge_document', 'upload_brain_page',
     'save_engagement_template', 'create_engagement_from_template', 'record_engagement_kickoff',
     'save_engagement_closeout',
     -- Close or cancel an engagement (20261216110001). Refuses anyone who is not builder or employee.

@@ -11,7 +11,10 @@ import { useBusy } from "@/hooks/useBusy";
 import { EmptyState, ErrorState, FilterBar, LoadingState, PageHeader, PageShell, SelectField, TextField, TextareaField, useConfirm } from "@/components/page-kit";
 import { DocumentEditor } from "./DocumentEditor";
 import { Button } from "@/components/ui/button";
-import { currentVersion, errorText, type KnowledgeSource, matchesSearch, toSources } from "./model";
+import { FileChooser, OriginalFileLink } from "@/features/documents/DocumentUploadParts";
+import { titleFromDocument } from "@/features/documents/model";
+import { submitDocument } from "@/features/documents/upload";
+import { categoryLabel, currentVersion, errorText, KNOWLEDGE_CATEGORIES, type KnowledgeSource, matchesSearch, toSources } from "./model";
 
 // The knowledge tables and functions are not in the generated types yet.
 interface DbResult {
@@ -72,6 +75,65 @@ function AddSource({ clients, onAdded }: { clients: ClientOption[]; onAdded: () 
   );
 }
 
+/** Staff upload a document: a file or pasted text, with a title, a category and an optional client. */
+function UploadDocument({ clients, onAdded }: { clients: ClientOption[]; onAdded: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [text, setText] = useState("");
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("general");
+  const [client, setClient] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const { busy, run } = useBusy();
+  const upload = () => run(async () => {
+    setError(null);
+    setDone(false);
+    const result = await submitDocument<string>({
+      area: "knowledge",
+      file,
+      pastedText: text,
+      failureText: "The document could not be uploaded.",
+      call: async (body, stored) => {
+        const { data, error: e } = await db.rpc("upload_knowledge_document", {
+          p_title: title.trim() || titleFromDocument(file?.name ?? null, body),
+          p_body: body,
+          p_category: category,
+          p_client_slug: client || null,
+          p_file_path: stored?.path ?? null,
+          p_file_name: stored?.name ?? null,
+          p_mime_type: stored?.mime ?? null,
+          p_size_bytes: stored?.size ?? null,
+        });
+        return { data: (data as string | null) ?? null, error: e };
+      },
+    });
+    if (!result.ok) return setError(result.message);
+    setFile(null);
+    setText("");
+    setTitle("");
+    setDone(true);
+    onAdded();
+  });
+  return (
+    <details className="rounded-lg border border-input bg-background p-4" data-testid="knowledge-upload">
+      <summary className="cursor-pointer text-sm font-medium">Upload a document</summary>
+      <div className="mt-3 space-y-2">
+        <TextField label="Upload title" hideLabel placeholder="Title (optional, taken from the file when empty)" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <FileChooser file={file} onFile={setFile} label="Document file" />
+        <TextareaField label="Upload text" hideLabel inputClassName="min-h-[100px]" placeholder="Or paste the text" value={text} onChange={(e) => setText(e.target.value)} />
+        <div className="grid gap-2 sm:grid-cols-2">
+          <SelectField label="Upload category" hideLabel value={category} onChange={(e) => setCategory(e.target.value)} options={KNOWLEDGE_CATEGORIES.map((c) => ({ value: c.value, label: c.label }))} />
+          <SelectField label="Upload client" hideLabel value={client} onChange={(e) => setClient(e.target.value)} placeholder="No client (all clients)" options={clients.map((c) => ({ value: c.slug, label: c.name }))} />
+        </div>
+        <p className="text-[12px] text-muted-foreground">For a PDF the text is not read, so paste it above if you want it searchable; the PDF stays available to open. Staff only.</p>
+        <Button size="sm" disabled={busy || (!file && !text.trim())} onClick={() => void upload()}>Upload</Button>
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {done ? <p role="status" className="text-sm text-muted-foreground">Document uploaded.</p> : null}
+      </div>
+    </details>
+  );
+}
+
 function SourceDetail({ source, onChanged, onDirtyChange }: { source: KnowledgeSource; onChanged: () => Promise<void>; onDirtyChange: (dirty: boolean) => void }) {
   const current = currentVersion(source);
   const [editing, setEditing] = useState(false);
@@ -90,9 +152,10 @@ function SourceDetail({ source, onChanged, onDirtyChange }: { source: KnowledgeS
         <div>
           <h2 className="text-base font-semibold">{source.title}</h2>
           <p className="text-[12px] text-muted-foreground">
-            {source.release_scope === "client" ? `client ${source.client_slug}` : "all clients"} · {source.namespace}
+            {source.release_scope === "client" ? `client ${source.client_slug}` : "all clients"} · {categoryLabel(source.namespace)}
             {source.citation_url ? <> · <a className="underline" href={source.citation_url} target="_blank" rel="noopener noreferrer">source</a></> : null}
           </p>
+          <OriginalFileLink area="knowledge" targetId={source.id} />
         </div>
         {editing ? null : <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit</Button>}
       </div>
@@ -108,7 +171,7 @@ function SourceDetail({ source, onChanged, onDirtyChange }: { source: KnowledgeS
 }
 
 export default function KnowledgePage() {
-  const { isBuilder } = useAuth();
+  const { isBuilder, isEmployee } = useAuth();
   const [sources, setSources] = useState<KnowledgeSource[] | null>(null);
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -145,10 +208,10 @@ export default function KnowledgePage() {
 
   useEffect(() => {
     void load();
-    if (isBuilder) {
+    if (isBuilder || isEmployee) {
       void db.from("clients").select("slug, name").order("name").then(({ data }) => setClients((data ?? []) as ClientOption[]));
     }
-  }, [load, isBuilder]);
+  }, [load, isBuilder, isEmployee]);
 
   const visible = useMemo(() => (sources ?? []).filter((s) => matchesSearch(s, query)), [sources, query]);
   const active = (sources ?? []).find((s) => s.id === selected) ?? null;
@@ -156,6 +219,7 @@ export default function KnowledgePage() {
   return (
     <PageShell data-testid="knowledge">
       <PageHeader title="Knowledge" description="Shared Goodo knowledge. Open a document and press Edit to add to it or remove from it. Your change shows right away." />
+      {isBuilder || isEmployee ? <UploadDocument clients={clients} onAdded={() => void load()} /> : null}
       {isBuilder ? <AddSource clients={clients} onAdded={() => void load()} /> : null}
       <FilterBar search={{ value: query, onChange: setQuery, label: "Search knowledge", placeholder: "Search" }} />
       {error ? <ErrorState message={error} onRetry={() => { setError(null); void load(); }} /> : null}
