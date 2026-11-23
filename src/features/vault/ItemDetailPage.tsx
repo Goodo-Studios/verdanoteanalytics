@@ -33,6 +33,7 @@ import { VaultShareControl } from "./components/VaultShareControl";
 import { safeExternalHref } from "@/lib/safe-url";
 import { useServerDraft } from "./hooks/useServerDraft";
 import { newestFirst } from "./newestFirst";
+import { embedRows } from "./embedRows";
 import type { TablesUpdate } from "@/integrations/supabase/types";
 
 interface TranscriptRow {
@@ -72,6 +73,8 @@ export default function ItemDetailPage() {
   // before the item row's status flips on the server.
   const [reanalyzeInFlight, setReanalyzeInFlight] = useState(false);
   const [addToBoardOpen, setAddToBoardOpen] = useState(false);
+  // The src the player gave up on. Compared to the current src so a fresh signed URL gets a fresh try.
+  const [failedVideoSrc, setFailedVideoSrc] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["vault-item", id],
@@ -88,8 +91,12 @@ export default function ItemDetailPage() {
         .single();
       if (error) throw error;
       // One row per item is enforced in the database; newest first is the fallback (audit 4.3).
+      // Both embeds come back as a single object (or null), not an array, now that item_id is
+      // unique on each table, so they go through embedRows before sorting.
       if (data) {
         const row = data as { inspiration_transcripts?: { created_at?: string }[]; inspiration_frameworks?: { created_at?: string }[] };
+        row.inspiration_transcripts = embedRows(row.inspiration_transcripts);
+        row.inspiration_frameworks = embedRows(row.inspiration_frameworks);
         row.inspiration_transcripts = newestFirst(row.inspiration_transcripts);
         row.inspiration_frameworks = newestFirst(row.inspiration_frameworks);
       }
@@ -337,10 +344,13 @@ export default function ItemDetailPage() {
   }
 
   if (error || !data) {
+    // Only a real "no such row" (PGRST116 from .single()) is "not found". Any other failure is a
+    // load problem, and saying "not found" for it hid the real cause of broken item pages.
+    const notFound = !error || (error as { code?: string }).code === "PGRST116";
     return (
       <>
         <PageShell>
-          <EmptyState icon={<AlertCircle className="w-8 h-8 text-destructive" />} title="Item not found" action={<Link
+          <EmptyState icon={<AlertCircle className="w-8 h-8 text-destructive" />} title={notFound ? "Item not found" : "This item could not be loaded"} action={<Link
             to={`${prefix}/ad-library`}
             className="text-primary text-sm hover:underline"
           >
@@ -428,13 +438,31 @@ export default function ItemDetailPage() {
                 // change, so without a key the browser kept showing the expired CDN
                 // source and the durable signed URL never took effect. Keying on the
                 // resolved src forces a fresh media-element lifecycle.
-                <video
-                  key={signedUrl ?? data.video_url ?? "no-video-src"}
-                  src={signedUrl ?? data.video_url ?? undefined}
-                  controls
-                  poster={signedThumbnailUrl ?? data.thumbnail_url ?? undefined}
-                  className="w-full h-full object-contain"
-                />
+                failedVideoSrc === (signedUrl ?? data.video_url) ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-2 p-4 text-center text-muted-foreground text-sm">
+                    <AlertCircle className="w-6 h-6" />
+                    <span>This video can no longer be played.</span>
+                    {safeExternalHref(data.source_url) && (
+                      <a
+                        href={safeExternalHref(data.source_url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        Open the original
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <video
+                    key={signedUrl ?? data.video_url ?? "no-video-src"}
+                    src={signedUrl ?? data.video_url ?? undefined}
+                    controls
+                    poster={signedThumbnailUrl ?? data.thumbnail_url ?? undefined}
+                    onError={() => setFailedVideoSrc(signedUrl ?? data.video_url ?? null)}
+                    className="w-full h-full object-contain"
+                  />
+                )
               ) : imageSrc ? (
                 <img
                   src={imageSrc}

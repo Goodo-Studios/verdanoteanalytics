@@ -76,7 +76,8 @@ Deno.test("groups of different themes stay apart", async () => {
 
 Deno.test("the merge does not chain: A near B and B near C does not put A, B and C together when A is far from C", async () => {
   const { mergeBatchGroups } = await load();
-  // Unit vectors at 0, 40 and 80 degrees: cosine(A,B) = cosine(B,C) = 0.77, cosine(A,C) = 0.17.
+  // Unit vectors at 0, 15 and 30 degrees: cosine(A,B) = cosine(B,C) = 0.966, cosine(A,C) = 0.866.
+  // Neighbours clear the merge similarity (0.95), the ends do not.
   const at = (deg: number) => [Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180), 0];
   const mk = (id: string, deg: number) => ({
     memberIds: [id], metrics: [participant(id, at(deg)).metrics], adNames: [[id, id]],
@@ -84,7 +85,7 @@ Deno.test("the merge does not chain: A near B and B near C does not put A, B and
     assetKeys: [], metaVideoIds: [], metaImageHashes: [], isExact: false,
     visualCoherent: false, scriptCoherent: false, destinations: [null],
   });
-  const merged = mergeBatchGroups([mk("A", 0), mk("B", 40), mk("C", 80)], THRESHOLD);
+  const merged = mergeBatchGroups([mk("A", 0), mk("B", 15), mk("C", 30)], THRESHOLD);
   assertEquals(merged.length, 2, "complete linkage joins at most two of the three");
   assert(merged.every((g: { memberIds: string[] }) => g.memberIds.length <= 2));
 });
@@ -94,12 +95,12 @@ Deno.test("the merged centre is the member-weighted mean", async () => {
   const batch1 = clusterBatch([
     participant("a1", [1, 0, 0]), participant("a2", [1, 0, 0]), participant("a3", [1, 0, 0]),
   ], THRESHOLD);
-  const batch2 = clusterBatch([participant("a4", [0.8, 0.6, 0])], THRESHOLD);
+  const batch2 = clusterBatch([participant("a4", [0.96, 0.28, 0])], THRESHOLD);
   const merged = mergeBatchGroups([...batch1, ...batch2], THRESHOLD);
   assertEquals(merged.length, 1);
   const c = merged[0].noteCentroid;
-  assert(Math.abs(c[0] - (3 + 0.8) / 4) < 1e-9, `x was ${c[0]}`);
-  assert(Math.abs(c[1] - 0.6 / 4) < 1e-9, `y was ${c[1]}`);
+  assert(Math.abs(c[0] - (3 + 0.96) / 4) < 1e-9, `x was ${c[0]}`);
+  assert(Math.abs(c[1] - 0.28 / 4) < 1e-9, `y was ${c[1]}`);
 });
 
 Deno.test("groups sharing an asset key merge even when their centres differ", async () => {
@@ -190,4 +191,39 @@ Deno.test("cluster-creatives groups every running ad, a batch at a time", async 
   assert(src.includes("mergeBatchGroups("), "batches are merged with mergeBatchGroups");
   assert(/GROUPING_MAX_ADS/.test(src), "a safety ceiling on the number of ads");
   assertEquals(/loadGroupingInputs\([^)]*GROUPING_CAP/.test(src), false, "no single capped read left");
+});
+
+// Merging batch groups by their centres is looser than one complete-linkage pass over the members:
+// a group's centre is an average, so two centres score as more similar than their members do.
+// At the grouping threshold (0.7) Bearaby's 1,862 embedded ads collapsed to 20 groups with one of
+// 848 members, against 75 groups with a largest of 155 for a single pass. Measured on Bearaby and
+// Flatpack, merging at a centre similarity of 0.95 lands closest to the single pass: 84 and 46
+// groups against 75 and 44, largest 240 and 374 against 155 and 361.
+const unit = (deg: number) => [Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180), 0];
+
+Deno.test("batch groups merge only when their centres are at least 0.95 similar", async () => {
+  const { clusterBatch, mergeBatchGroups, MERGE_CENTRE_SIMILARITY } = await load();
+  assertEquals(MERGE_CENTRE_SIMILARITY, 0.95);
+  // 20 degrees apart: cosine 0.94. Above the 0.7 grouping threshold, below the merge similarity.
+  const apart = mergeBatchGroups([
+    ...clusterBatch([participant("a1", unit(0)), participant("a2", unit(2))], THRESHOLD),
+    ...clusterBatch([participant("b1", unit(20)), participant("b2", unit(22))], THRESHOLD),
+  ], THRESHOLD);
+  assertEquals(apart.length, 2, "cosine 0.94 is not enough to merge");
+  // 15 degrees apart: cosine 0.966. Clears 0.95.
+  const together = mergeBatchGroups([
+    ...clusterBatch([participant("a1", unit(0)), participant("a2", unit(2))], THRESHOLD),
+    ...clusterBatch([participant("b1", unit(15)), participant("b2", unit(17))], THRESHOLD),
+  ], THRESHOLD);
+  assertEquals(together.length, 1, "cosine 0.966 merges");
+});
+
+Deno.test("the merge never goes below the grouping threshold that was asked for", async () => {
+  const { clusterBatch, mergeBatchGroups } = await load();
+  // A grouping threshold of 0.98 is stricter than the 0.95 merge similarity: cosine 0.966 must not merge.
+  const strict = mergeBatchGroups([
+    ...clusterBatch([participant("a1", unit(0))], 0.98),
+    ...clusterBatch([participant("b1", unit(15))], 0.98),
+  ], 0.98);
+  assertEquals(strict.length, 2);
 });
