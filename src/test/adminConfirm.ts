@@ -18,9 +18,14 @@ export async function acceptConfirm(): Promise<void> {
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
 }
 
-/** Presses Cancel and waits for the dialog to close. */
-export async function declineConfirm(): Promise<void> {
+/**
+ * Presses Cancel and waits for the dialog to close. Pass the button that opened it when the test
+ * presses it again: pages keep that button disabled until the declined action has finished, and a
+ * click on a disabled button does nothing, so the test would wait for a dialog that never opens.
+ */
+export async function declineConfirm(trigger?: HTMLElement): Promise<void> {
   const dialog = await screen.findByRole("alertdialog");
   fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  if (trigger) await waitFor(() => expect(trigger).toBeEnabled());
 }

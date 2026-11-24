@@ -209,7 +209,7 @@ describe("the log", () => {
     render(<InviteSection prefill={null} onSent={() => {}} />);
     const button = await screen.findByRole("button", { name: "Revoke the invite for pat@example.test" });
     fireEvent.click(button);
-    await declineConfirm();
+    await declineConfirm(button);
     expect(h.invoke).not.toHaveBeenCalled();
     fireEvent.click(button);
     expect(await confirmDialogText()).toContain("Their login is removed and the link in their email stops working.");
