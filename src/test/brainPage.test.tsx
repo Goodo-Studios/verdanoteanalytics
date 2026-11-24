@@ -339,7 +339,8 @@ describe("Edit a page", () => {
       name: "edit_brain_page",
       args: { p_page_id: "3", p_body_md: "Step one, then step two.", p_expected_updated_at: "2026-11-02T00:00:00.654321+00:00" },
     }]);
-    expect(screen.queryByTestId("document-editor")).toBeNull();
+    // The saved text can render before the editor finishes closing, so wait for the close.
+    await waitFor(() => expect(screen.queryByTestId("document-editor")).toBeNull());
     expect(screen.getByTestId("brain-edited").textContent).toMatch(/^Edited in the app on .*Publishing from HQ keeps this text\.$/);
   });
 

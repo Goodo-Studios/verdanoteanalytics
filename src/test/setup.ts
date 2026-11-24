@@ -5,8 +5,15 @@ import { configureAxe } from "vitest-axe";
 // though it works at runtime. The dist typings export the real value.
 import { toHaveNoViolations } from "vitest-axe/dist/matchers";
 import { expect } from "vitest";
+import { configure } from "@testing-library/react";
 
 expect.extend({ toHaveNoViolations });
+
+// findBy* and waitFor give up after 1 second by default. When the whole suite runs in
+// parallel on a CI runner, a page can take just over that to render, so tests failed at
+// 1,04x ms with "Unable to find role=..." although they pass on their own every time.
+// Waiting longer changes no assertion: a test still fails if the element never appears.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom exposes window.localStorage but the global `localStorage` reference
 // (used by app code that runs in a real browser) is occasionally undefined in
