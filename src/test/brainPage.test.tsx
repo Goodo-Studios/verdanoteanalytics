@@ -98,9 +98,13 @@ vi.mock("@/integrations/supabase/client", () => {
 import BrainPage from "@/features/brain/BrainPage";
 import { brainAnchor, brainPagePath, needsReview, NEEDS_REVIEW_DAYS, parseBrainHref, sectionFromParam, withoutRepeatedTitle } from "@/features/brain/model";
 
+// useTransitions={false}: the router otherwise applies each address change as a low-priority
+// update that React renders in small slices. Under a busy CI runner the test's own polling took
+// the CPU and the "open the new page" change after an upload was still not on screen 5 s later
+// (3 of 60 heavy-load runs; 0 of 60 with this setting). The address and page shown are the same.
 function renderAt(search = "") {
   return render(
-    <MemoryRouter initialEntries={[`/builder/knowledge/brain${search}`]}>
+    <MemoryRouter useTransitions={false} initialEntries={[`/builder/knowledge/brain${search}`]}>
       <BrainPage />
     </MemoryRouter>,
   );
@@ -339,7 +343,8 @@ describe("Edit a page", () => {
       name: "edit_brain_page",
       args: { p_page_id: "3", p_body_md: "Step one, then step two.", p_expected_updated_at: "2026-11-02T00:00:00.654321+00:00" },
     }]);
-    expect(screen.queryByTestId("document-editor")).toBeNull();
+    // The saved text can render before the editor finishes closing, so wait for the close.
+    await waitFor(() => expect(screen.queryByTestId("document-editor")).toBeNull());
     expect(screen.getByTestId("brain-edited").textContent).toMatch(/^Edited in the app on .*Publishing from HQ keeps this text\.$/);
   });
 

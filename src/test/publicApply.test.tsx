@@ -39,6 +39,11 @@ const file = (name: string, type: string, size = 1000) => {
   return f;
 };
 const fill = (label: RegExp | string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+// The fields show at once, but the file pickers and Send stay disabled until the draft has
+// started. A file pick or a click before then does nothing, so wait for Send to be enabled.
+const formReady = async () => {
+  await waitFor(() => expect(screen.getByRole("button", { name: "Send my application" })).toBeEnabled());
+};
 const addVideos = async (n: number) => {
   const input = screen.getByLabelText(/^Videos/);
   for (let i = 0; i < n; i++) {
@@ -69,7 +74,7 @@ describe("creator application form", () => {
 
   it("asks for what is missing before sending anything", async () => {
     render(<PublicApplyPage kind="creator" />);
-    await screen.findByLabelText("Your name");
+    await formReady();
     fireEvent.click(screen.getByRole("button", { name: "Send my application" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Please add your name.");
     fill("Your name", "Pat");
@@ -84,7 +89,7 @@ describe("creator application form", () => {
 
   it("refuses a wrong type or an oversized file with a plain sentence and uploads nothing", async () => {
     render(<PublicApplyPage kind="creator" />);
-    await screen.findByLabelText("Your name");
+    await formReady();
     fireEvent.change(screen.getByLabelText(/^Videos/), { target: { files: [file("a.pdf", "application/pdf")] } });
     expect((await screen.findByRole("alert")).textContent).toBe("Please use an MP4, MOV or WebM video.");
     fireEvent.change(screen.getByLabelText(/^Photo of you/), { target: { files: [file("a.jpg", "image/jpeg", 6 * 1024 * 1024)] } });
@@ -95,7 +100,7 @@ describe("creator application form", () => {
 
   it("uploads to the signed address and submits with the draft id, files and an empty hidden field", async () => {
     render(<PublicApplyPage kind="creator" />);
-    await screen.findByLabelText("Your name");
+    await formReady();
     fill("Your name", "Pat");
     fill("Email", "pat@example.test");
     await addVideos(3);
@@ -117,7 +122,7 @@ describe("creator application form", () => {
     [400, { error: "invalid", field: "files" }, "One of your files is missing"],
   ])("explains a %s answer to the submit", async (status, body, text) => {
     render(<PublicApplyPage kind="creator" />);
-    await screen.findByLabelText("Your name");
+    await formReady();
     fill("Your name", "Pat");
     fill("Email", "pat@example.test");
     await addVideos(3);
@@ -130,7 +135,7 @@ describe("creator application form", () => {
   it("says so when a file does not upload", async () => {
     uploadToSignedUrl.mockResolvedValue({ error: { message: "boom" } });
     render(<PublicApplyPage kind="creator" />);
-    await screen.findByLabelText("Your name");
+    await formReady();
     fireEvent.change(screen.getByLabelText(/^Videos/), { target: { files: [file("a.mp4", "video/mp4")] } });
     expect((await screen.findByRole("alert")).textContent).toBe("That file did not upload. Please try again.");
   });
@@ -140,6 +145,7 @@ describe("actor application form", () => {
   it("needs gender and an age range, and needs one video", async () => {
     render(<PublicApplyPage kind="actor" />);
     expect(await screen.findByRole("heading", { level: 1, name: "Apply to be on camera with Goodo Studios" })).toBeTruthy();
+    await formReady();
     fill("Your name", "Ari");
     fill("Email", "ari@example.test");
     fireEvent.click(screen.getByRole("button", { name: "Send my application" }));

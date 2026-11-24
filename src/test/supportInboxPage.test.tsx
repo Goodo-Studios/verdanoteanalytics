@@ -130,7 +130,10 @@ describe("SupportInboxPage", () => {
     await waitFor(() =>
       expect(rpc).toHaveBeenCalledWith("record_support_event", { p_request_id: "r1", p_expected_revision: 2, p_event_kind: "response", p_body: "Ads are live", p_next_update_target: "2026-11-20" }),
     );
-    fireEvent.click(within(card).getByRole("button", { name: "Resolve" }));
+    // Resolve stays disabled until the first update has finished; a click before that does nothing.
+    const resolve = within(card).getByRole("button", { name: "Resolve" });
+    await waitFor(() => expect(resolve).toBeEnabled());
+    fireEvent.click(resolve);
     await waitFor(() => expect(rpc).toHaveBeenCalledWith("record_support_event", expect.objectContaining({ p_event_kind: "resolution", p_expected_revision: 2 })));
   });
 
