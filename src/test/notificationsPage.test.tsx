@@ -130,7 +130,7 @@ describe("Slack sending", () => {
     const on = await screen.findByRole("button", { name: "Turn Slack sending on" });
     fireEvent.click(on);
     expect(await confirmDialogText()).toContain("Turn Slack sending on?");
-    await declineConfirm();
+    await declineConfirm(on);
     expect(h.writes).toHaveLength(0);
     fireEvent.click(on);
     await acceptConfirm();
@@ -287,11 +287,12 @@ describe("Reminders", () => {
     expect(within(rows[0]).getByTestId("reminder-state")).toHaveTextContent("Scheduled");
     expect(within(rows[1]).getByTestId("reminder-state")).toHaveTextContent("Did not send");
     expect(within(rows[1]).queryByRole("button", { name: /Cancel/ })).toBeNull();
-    fireEvent.click(within(rows[0]).getByRole("button", { name: /Cancel the reminder due/ }));
+    const cancelButton = within(rows[0]).getByRole("button", { name: /Cancel the reminder due/ });
+    fireEvent.click(cancelButton);
     expect(await confirmDialogText()).toContain("It will not be sent.");
-    await declineConfirm();
+    await declineConfirm(cancelButton);
     expect(h.writes).toHaveLength(0);
-    fireEvent.click(within(rows[0]).getByRole("button", { name: /Cancel the reminder due/ }));
+    fireEvent.click(cancelButton);
     await acceptConfirm();
     await waitFor(() => expect(h.writes).toHaveLength(1));
     expect(h.writes[0]).toMatchObject({ table: "reminders", op: "update", row: { state: "canceled" }, id: "r1" });
